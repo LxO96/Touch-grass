@@ -1,0 +1,21 @@
+# Android build output and local machine config
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/.idea/
+android/.cxx/
+android/captures/
+*.iml
+
+# Editors / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Built APKs live here for uploading to a Release, not in git history
+dist/
+
+# Scratch files used for screenshots and manual testing
+_*.html

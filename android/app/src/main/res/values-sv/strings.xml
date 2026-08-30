@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="widget_name">Touch Grass</string>
+    <string name="widget_description">Dagens poäng, och vad du bör göra åt det.</string>
+</resources>

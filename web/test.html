@@ -1,0 +1,759 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Touch Grass — logic tests</title>
+<style>
+ body { font: 14px/1.5 monospace; background: #303e4e; color: #eee; padding: 20px; }
+ pre { white-space: pre-wrap; }
+ .p { color: #8fd46a; } .f { color: #ff8080; font-weight: bold; }
+ h1 { font: bold 20px monospace; }
+</style>
+</head>
+<body>
+<h1>Touch Grass — logic tests</h1>
+<pre id="out">running…</pre>
+
+<script>
+window.addEventListener('error', (e) => {
+  document.getElementById('out').textContent =
+    'THREW: ' + e.message + '\n  at ' + e.filename + ':' + e.lineno + ':' + e.colno;
+});
+</script>
+<script src="scoring.js"></script>
+<script src="lang.js"></script>
+<script src="core.js"></script>
+<script>
+/* ================= harness ================= */
+
+const lines = [];
+let nPass = 0, nFail = 0;
+
+function check(name, got, want) {
+  const ok = got === want;
+  ok ? nPass++ : nFail++;
+  lines.push(`${ok ? 'PASS' : 'FAIL'}  ${name}` + (ok ? '' : `\n        got=${got}\n        want=${want}`));
+}
+
+/* ================= fixtures ================= */
+
+// Copy is asserted in English; getLang() otherwise follows the browser,
+// which on a Swedish machine would make every string test fail.
+const REAL_LANG = localStorage.getItem('touchgrass.lang');
+localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+
+const S = Object.assign({}, DEFAULTS);            // default dials
+
+// A pleasant spring afternoon, unless overridden.
+const base = { feels: 20, temp: 20, pop: 5, precip: 0, wind: 8,
+               isDay: true, hour: 14, code: 0 };
+const at = (o) => Object.assign({}, base, o);
+
+function fc(specs, s) {
+  return specs.map((spec, i) => {
+    const h = at(Object.assign({ hour: (base.hour + i + 1) % 24 }, spec));
+    h.hoursFromNow = i + 1;
+    h.label = h.hour === 0 ? 'midnight' : h.hour < 12 ? h.hour + 'am'
+            : h.hour === 12 ? 'noon' : (h.hour - 12) + 'pm';
+    h.score = scoreHour(h, s || S);
+    return h;
+  });
+}
+const flat = (n, o, s) => fc(Array.from({ length: n }, () => o || {}), s);
+
+const WET  = { pop: 100, precip: 3, code: 65 };
+const NIGHT = { isDay: false, hour: 3 };
+
+/* ================= scoring ================= */
+
+check('perfect afternoon scores high', scoreHour(at({}), S) >= 90, true);
+check('heavy rain tanks it', scoreHour(at(WET), S) < 25, true);
+check('night costs a lot', scoreHour(at({ isDay: false, hour: 21 }), S) < 65, true);
+check('3am costs more than 9pm',
+  scoreHour(at(NIGHT), S) < scoreHour(at({ isDay: false, hour: 21 }), S), true);
+check('score never leaves 0..100',
+  (() => { const v = scoreHour(at({ feels: -40, pop: 100, precip: 9, wind: 90,
+      isDay: false, hour: 3, code: 96 }), S); return v >= 0 && v <= 100; })(), true);
+
+/* ================= dials actually do something ================= */
+
+check('rain dial at 0 rescues a wet hour',
+  scoreHour(at(WET), Object.assign({}, S, { rain: 0 })) >
+  scoreHour(at(WET), S) + 40, true);
+
+check('rain dial at 2 punishes harder than default',
+  scoreHour(at({ pop: 60 }), Object.assign({}, S, { rain: 2 })) <
+  scoreHour(at({ pop: 60 }), S), true);
+
+check('cold dial at 0 rescues a chilly hour',
+  scoreHour(at({ feels: 2 }), Object.assign({}, S, { cold: 0 })) >= 95, true);
+
+check('heat dial at 0 rescues a hot hour',
+  scoreHour(at({ feels: 34 }), Object.assign({}, S, { heat: 0 })) >= 95, true);
+
+check('dark dial at 0 makes night as good as day',
+  scoreHour(at(NIGHT), Object.assign({}, S, { dark: 0 })) ===
+  scoreHour(at({ hour: 14 }), S), true);
+
+check('wind dial at 0 rescues a gale',
+  scoreHour(at({ wind: 60 }), Object.assign({}, S, { wind: 0 })) >= 95, true);
+
+check('dials stay clamped to 0..2 when stored out of range',
+  (() => {
+    localStorage.setItem('touchgrass.settings',
+      JSON.stringify({ rain: 99, cold: -5, bar: 999 }));
+    const g = getSettings();
+    localStorage.removeItem('touchgrass.settings');
+    return g.rain === 2 && g.cold === 0 && g.bar === 90;
+  })(), true);
+
+check('a lower bar sends you out in worse weather',
+  (() => {
+    const mediocre = at({ pop: 55, feels: 12 });
+    const ahead = flat(12, { pop: 55, feels: 12 });
+    const fussy  = decide(mediocre, ahead, 0, Object.assign({}, S, { bar: 85 }));
+    const relaxed = decide(mediocre, ahead, 0, Object.assign({}, S, { bar: 30 }));
+    return fussy.state !== 'go' && relaxed.state === 'go';
+  })(), true);
+
+/* ================= THE HOUSE RULE ================= */
+/* If you have not been out today, it must never say "stay in". */
+
+check('house rule: never "stayin" before your first trip',
+  (() => {
+    const dials = [S, Object.assign({}, S, { bar: 90 }),
+                      Object.assign({}, S, { rain: 2, cold: 2, dark: 2 })];
+    for (const s of dials) {
+      for (const feels of [-30, -16, -5, 5, 12, 20, 30, 39, 45]) {
+        for (const hour of [0, 3, 6, 9, 12, 15, 18, 21, 23]) {
+          for (const isDay of [true, false]) {
+            for (const code of [0, 3, 45, 63, 65, 75, 95, 96]) {
+              for (const wind of [2, 30, 70]) {
+                const now = at({ feels, hour, isDay, code, wind });
+                const ahead = flat(12, { feels, hour, isDay, code, wind }, s);
+                const v = decide(now, ahead, 0, s);
+                if (v.state === 'stayin') {
+                  return `stayin leaked: feels=${feels} hour=${hour} code=${code}`;
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+// Asserted on the decision itself rather than its wording, so it holds
+// in every language.
+check('house rule: every not-been-out verdict is actionable',
+  (() => {
+    // The only outcomes allowed to name no specific hour are the ones
+    // where there genuinely isn't one to name.
+    const mayLackAnHour = ['waitRiskyNoGap', 'go', 'anyways'];
+    for (const feels of [-20, 5, 20, 40]) {
+      for (const isDay of [true, false]) {
+        for (const code of [0, 65, 95]) {
+          const now = at({ feels, isDay, hour: isDay ? 14 : 2, code });
+          const d = tgDecide(now, flat(12, { feels, isDay, code }), 0, S);
+          if (d.state === 'stayin') return 'stayin leaked';
+          if (!mayLackAnHour.includes(d.state) && !d.target) {
+            return 'no hour named for ' + d.state;
+          }
+        }
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('"stay in" IS reachable once you have been out',
+  decide(at(WET), flat(12, WET), 1, S).state, 'stayin');
+
+/* ================= safety still wins ================= */
+
+check('dangerous heat never says go',
+  decide(at({ feels: 44 }), flat(12, { feels: 44 }), 0, S).state !== 'go'
+  && decide(at({ feels: 44 }), flat(12, { feels: 44 }), 0, S).state !== 'anyways', true);
+
+check('dangerous cold never says go',
+  decide(at({ feels: -22 }), flat(12, { feels: -22 }), 0, S).state, 'wait');
+
+check('lightning never says go',
+  decide(at({ code: 95 }), flat(12, { code: 95 }), 0, S).state, 'wait');
+
+check('safety beats a wide-open bar',
+  decide(at({ feels: 44 }), flat(12, { feels: 44 }), 0,
+         Object.assign({}, S, { bar: 25, heat: 0 })).state, 'wait');
+
+check('safety beats every dial turned off',
+  (() => {
+    const off = { rain: 0, cold: 0, heat: 0, wind: 0, dark: 0, bar: 25 };
+    for (const now of [at({ feels: 45 }), at({ feels: -25 }), at({ code: 95 })]) {
+      const v = decide(now, flat(12, {}, off), 0, off);
+      if (v.state === 'go' || v.state === 'anyways') return 'unsafe: ' + v.line;
+    }
+    return 'clean';
+  })(), 'clean');
+
+/* ================= night ================= */
+
+check('"go out anyways" never happens in the small hours',
+  (() => {
+    for (const hour of [23, 0, 1, 2, 3, 4]) {
+      const spec = Object.assign({ isDay: false, hour }, WET);
+      const v = decide(at(spec), flat(12, spec), 0, S);
+      if (v.state === 'anyways') return `leaked at ${hour}h`;
+    }
+    return 'clean';
+  })(), 'clean');
+
+// Deliberate: a dark winter *evening* is still a fine time to go out, so
+// "anyways" is allowed there. Only 11pm–5am is off limits.
+check('a dark winter evening still gets pushed out',
+  (() => {
+    const spec = Object.assign({ isDay: false, hour: 18 }, WET);
+    return decide(at(spec), flat(12, spec), 0, S).state;
+  })(), 'anyways');
+
+check('the small hours still name an hour to go',
+  (() => {
+    const spec = Object.assign({ isDay: false, hour: 2 }, WET);
+    const d = tgDecide(at(spec), flat(12, spec), 0, S);
+    return d.state === 'waitNight' && !!d.target;
+  })(), true);
+
+/* ================= copy ================= */
+
+check('no undefined/NaN in any verdict copy',
+  (() => {
+    for (const feels of [-30, -16, -5, 10, 20, 30, 39, 45]) {
+      for (const hour of [3, 9, 15, 21]) {
+        for (const isDay of [true, false]) {
+          for (const visits of [0, 1, 2, 5]) {
+            for (const code of [0, 3, 65, 95, 75]) {
+              const v = decide(at({ feels, hour, isDay, code }),
+                               flat(12, { feels, hour, isDay, code }), visits, S);
+              const txt = v.line + ' ' + v.sub + ' ' + v.tag;
+              if (/undefined|NaN|\[object/.test(txt)) return txt.slice(0, 70);
+            }
+          }
+        }
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('every verdict has a state the CSS knows',
+  (() => {
+    const known = ['go', 'wait', 'anyways', 'stayin'];
+    for (const feels of [-30, 5, 20, 44]) {
+      for (const isDay of [true, false]) {
+        for (const visits of [0, 1]) {
+          const v = decide(at({ feels, isDay, hour: isDay ? 14 : 2 }),
+                           flat(12, { feels, isDay }), visits, S);
+          if (!known.includes(v.state)) return 'unknown: ' + v.state;
+        }
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('empty forecast does not crash the verdict',
+  typeof decide(at({}), [], 0, S).line, 'string');
+
+/* ================= the log ================= */
+
+const REAL_LOG = localStorage.getItem(LOG_KEY);   // borrow, then give back
+localStorage.removeItem(LOG_KEY);
+
+check('a fresh log is empty', Object.keys(getLog()).length, 0);
+
+check('adding a visit counts it', (() => { addVisit(); return visitsToday(); })(), 1);
+check('visits stack up', (() => { addVisit(); addVisit(); return visitsToday(); })(), 3);
+check('undo removes one', (() => { removeVisit(); return visitsToday(); })(), 2);
+check('undo cannot go below zero',
+  (() => { removeVisit(); removeVisit(); removeVisit(); return visitsToday(); })(), 0);
+check('a zeroed day is dropped, not stored as 0',
+  Object.prototype.hasOwnProperty.call(getLog(), todayKey()), false);
+
+check('rubbish entries are filtered out of the log',
+  (() => {
+    localStorage.setItem(LOG_KEY, JSON.stringify({
+      '2026-01-05': 2, 'nonsense': 4, '2026-13-99': 1, '2026-02-02': 'x',
+      '2026-03-03': -1, '2026-02-30': 1, '2026-00-10': 1
+    }));
+    const keys = Object.keys(getLog()).sort();
+    return keys.join(',');
+  })(), '2026-01-05');
+
+check('a leap day is accepted in a leap year but not otherwise',
+  validKey('2028-02-29') && !validKey('2026-02-29'), true);
+
+check('a corrupt log does not throw',
+  (() => { localStorage.setItem(LOG_KEY, '{not json'); return Object.keys(getLog()).length; })(), 0);
+
+check('streak counts consecutive days back from today',
+  (() => {
+    const log = {};
+    const d = new Date();
+    for (let i = 0; i < 5; i++) { log[dayKey(d)] = 1; d.setDate(d.getDate() - 1); }
+    return streakInfo(log).current;
+  })(), 5);
+
+check('a streak survives today being still unlogged',
+  (() => {
+    const log = {};
+    const d = new Date();
+    d.setDate(d.getDate() - 1);            // yesterday back, today blank
+    for (let i = 0; i < 4; i++) { log[dayKey(d)] = 1; d.setDate(d.getDate() - 1); }
+    return streakInfo(log).current;
+  })(), 4);
+
+check('a gap ends the streak',
+  (() => {
+    const log = {};
+    const d = new Date();
+    log[dayKey(d)] = 1;
+    d.setDate(d.getDate() - 2);            // skip yesterday
+    log[dayKey(d)] = 1;
+    return streakInfo(log).current;
+  })(), 1);
+
+check('longest run is found anywhere in history',
+  streakInfo({
+    '2026-01-01': 1, '2026-01-02': 1, '2026-01-03': 1,   // run of 3
+    '2026-06-10': 1                                       // lonely day
+  }).longest, 3);
+
+check('trips this year sums multiple trips per day',
+  (() => {
+    const y = new Date().getFullYear();
+    return streakInfo({ [`${y}-01-01`]: 3, [`${y}-01-02`]: 2 }).tripsThisYear;
+  })(), 5);
+
+check('days out counts days, not trips',
+  (() => {
+    const y = new Date().getFullYear();
+    return streakInfo({ [`${y}-01-01`]: 3, [`${y}-01-02`]: 2 }).daysThisYear;
+  })(), 2);
+
+check('a leap year has 366 squares',
+  (() => {
+    const jan1 = new Date(2028, 0, 1), dec31 = new Date(2028, 11, 31);
+    return Math.round((dec31 - jan1) / 86400000) + 1;
+  })(), 366);
+
+check('dayKey zero-pads so keys sort correctly',
+  dayKey(new Date(2026, 2, 5)), '2026-03-05');
+
+// put the user's real log back exactly as we found it
+if (REAL_LOG === null) localStorage.removeItem(LOG_KEY);
+else localStorage.setItem(LOG_KEY, REAL_LOG);
+
+check('the real log was restored after testing',
+  localStorage.getItem(LOG_KEY), REAL_LOG);
+
+
+/* ================= trends ================= */
+
+// helper: an `ahead` array with explicit per-hour overrides
+function ahead12(fn) {
+  const out = [];
+  for (let k = 1; k <= 12; k++) {
+    const h = at(Object.assign({ hour: (14 + k) % 24 }, fn(k)));
+    h.hoursFromNow = k;
+    h.label = h.hour < 12 ? h.hour + 'am' : (h.hour - 12) + 'pm';
+    h.score = scoreHour(h, S);
+    out.push(h);
+  }
+  return out;
+}
+
+check('rain clearing up reads as drying',
+  trends(at({ pop: 90 }), ahead12(() => ({ pop: 5 })), S).rain.text, 'drying');
+
+check('rain moving in reads as wetter and worse',
+  (() => {
+    const t = trends(at({ pop: 0 }), ahead12(() => ({ pop: 95 })), S).rain;
+    return t.text + '/' + t.mood;
+  })(), 'wetter/worse');
+
+check('a steady day reads as steady',
+  trends(at({ pop: 20 }), ahead12(() => ({ pop: 20 })), S).rain.text, 'steady');
+
+check('warming up on a cold day is better',
+  (() => {
+    const t = trends(at({ feels: 4 }), ahead12(() => ({ feels: 18 })), S).temp;
+    return t.text + '/' + t.mood;
+  })(), 'warmer/better');
+
+// The same direction of travel means opposite things at opposite ends.
+check('warming up in a heatwave is worse',
+  (() => {
+    const t = trends(at({ feels: 28 }), ahead12(() => ({ feels: 36 })), S).temp;
+    return t.text + '/' + t.mood;
+  })(), 'warmer/worse');
+
+check('cooling off in a heatwave is better',
+  (() => {
+    const t = trends(at({ feels: 34 }), ahead12(() => ({ feels: 22 })), S).temp;
+    return t.text + '/' + t.mood;
+  })(), 'colder/better');
+
+check('dropping wind reads as calmer',
+  trends(at({ wind: 45 }), ahead12(() => ({ wind: 5 })), S).wind.text, 'calmer');
+
+check('outlook spots a better hour coming',
+  trends(at(WET), ahead12(() => ({})), S).outlook.mood, 'better');
+
+check('outlook says downhill when now is the peak',
+  trends(at({}), ahead12(() => WET), S).outlook.mood, 'worse');
+
+check('outlook reports the best hour still to come, not the average',
+  (() => {
+    // one glorious hour buried among rubbish ones
+    const a = ahead12((k) => (k === 5 ? {} : WET));
+    return trends(at(WET), a, S).outlook.best >= 90;
+  })(), true);
+
+check('late in the evening it switches to "next few hours"',
+  trends(at({ hour: 22, isDay: false }), ahead12(() => ({})), S).label,
+  'next few hours');
+
+check('midday uses the rest of today',
+  trends(at({ hour: 12 }), ahead12(() => ({})), S).label, 'rest of today');
+
+check('no forecast means no trends, not a crash',
+  trends(at({}), [], S), null);
+
+check('every trend arrow has a glyph',
+  (() => {
+    const t = trends(at({ pop: 50, feels: 10, wind: 30 }),
+                     ahead12(() => ({ pop: 0, feels: 20, wind: 5 })), S);
+    for (const k of ['outlook', 'temp', 'rain', 'wind']) {
+      if (!ARROW[t[k].dir]) return 'missing arrow for ' + k;
+    }
+    return 'clean';
+  })(), 'clean');
+
+/* ================= notification prefs ================= */
+
+const REAL_NOTIFY = localStorage.getItem('touchgrass.notify');
+localStorage.removeItem('touchgrass.notify');
+
+check('notify defaults are off until asked for',
+  getNotify().enabled || getNotify().watch, false);
+
+check('an inverted quiet window is repaired, not left to never fire',
+  (() => {
+    localStorage.setItem('touchgrass.notify',
+      JSON.stringify({ windowStart: 20, windowEnd: 8 }));
+    const n = getNotify();
+    return n.windowEnd > n.windowStart;
+  })(), true);
+
+check('out-of-range times are clamped',
+  (() => {
+    localStorage.setItem('touchgrass.notify',
+      JSON.stringify({ hour: 99, minute: -5, greatBar: 500 }));
+    const n = getNotify();
+    return `${n.hour}/${n.minute}/${n.greatBar}`;
+  })(), '23/0/100');
+
+check('corrupt notify prefs fall back to defaults',
+  (() => {
+    localStorage.setItem('touchgrass.notify', 'not json');
+    return getNotify().hour;
+  })(), NOTIFY_DEFAULTS.hour);
+
+check('hhmm zero-pads',  hhmm(9, 5), '09:05');
+
+if (REAL_NOTIFY === null) localStorage.removeItem('touchgrass.notify');
+else localStorage.setItem('touchgrass.notify', REAL_NOTIFY);
+
+check('syncToAndroid is harmless in a browser',
+  (() => { try { syncToAndroid(); return 'fine'; } catch (e) { return 'threw: ' + e.message; } })(),
+  'fine');
+
+
+/* ================= reminder timing ================= */
+
+const clockN  = Object.assign({}, NOTIFY_DEFAULTS, { mode: 'clock', hour: 17, minute: 30 });
+const sunsetN = Object.assign({}, NOTIFY_DEFAULTS, { mode: 'sunset', beforeSunset: 2 });
+
+check('a fixed time is just that time',
+  reminderMinutes(clockN, 19 * 60 + 58), 17 * 60 + 30);
+
+check('sunset mode counts back from sunset',
+  reminderMinutes(sunsetN, 19 * 60 + 58), 17 * 60 + 58);
+
+check('half-hour offsets work',
+  reminderMinutes(Object.assign({}, sunsetN, { beforeSunset: 1.5 }), 20 * 60), 18 * 60 + 30);
+
+check('zero hours before sunset means at sunset',
+  reminderMinutes(Object.assign({}, sunsetN, { beforeSunset: 0 }), 20 * 60), 20 * 60);
+
+// Midwinter in the north: sunset at 14:50 should pull the nudge earlier,
+// which is the whole reason this mode exists.
+check('a dark midwinter sunset drags the nudge earlier',
+  reminderMinutes(sunsetN, 14 * 60 + 50) < reminderMinutes(clockN, 14 * 60 + 50), true);
+
+check('sunset mode falls back to the clock when sunset is unknown',
+  reminderMinutes(Object.assign({}, sunsetN, { hour: 17, minute: 0 }), null), 17 * 60);
+
+check('a bad sunset value does not produce NaN',
+  Number.isFinite(reminderMinutes(sunsetN, undefined)), true);
+
+check('the due time never escapes the day',
+  (() => {
+    for (const before of [0, 3, 6]) {
+      for (const sunset of [0, 30, 720, 1439]) {
+        const m = reminderMinutes(Object.assign({}, sunsetN, { beforeSunset: before }), sunset);
+        if (!(m >= 0 && m < 1440)) return `out of range: ${m}`;
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('mode is validated on the way out of storage',
+  (() => {
+    localStorage.setItem('touchgrass.notify', JSON.stringify({ mode: 'nonsense' }));
+    const m = getNotify().mode;
+    localStorage.removeItem('touchgrass.notify');
+    return m;
+  })(), 'clock');
+
+check('hours before sunset are clamped and snapped to halves',
+  (() => {
+    localStorage.setItem('touchgrass.notify',
+      JSON.stringify({ mode: 'sunset', beforeSunset: 99 }));
+    const a = getNotify().beforeSunset;
+    localStorage.setItem('touchgrass.notify',
+      JSON.stringify({ mode: 'sunset', beforeSunset: 1.3 }));
+    const b = getNotify().beforeSunset;
+    localStorage.removeItem('touchgrass.notify');
+    return `${a}/${b}`;
+  })(), '6/1.5');
+
+check('clockToMinutes reads an ISO time tail',
+  clockToMinutes('19:58'), 19 * 60 + 58);
+
+check('clockToMinutes rejects rubbish',
+  clockToMinutes('not a time'), null);
+
+check('minutesToHhmm round-trips',
+  minutesToHhmm(clockToMinutes('07:05')), '07:05');
+
+
+/* ================= languages ================= */
+
+check('both languages are offered',
+  LANGS_AVAILABLE.map((l) => l.code).join(','), 'en,sv');
+
+// A corrupt stored value falls through to the browser's preference,
+// which is more useful than forcing English on a Swedish phone.
+check('an unknown stored language falls back to a supported one',
+  (() => {
+    localStorage.setItem('touchgrass.lang', 'kl'); LANG_CACHE = null;
+    const c = getLang();
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    return LANGS_AVAILABLE.some((l) => l.code === c);
+  })(), true);
+
+check('every verdict state has wording in both languages',
+  (() => {
+    const states = ['go','goAgain','wait','waitAgain','waitDark','waitNight',
+                    'waitRisky','waitRiskyNoGap','anywaysBest','anyways','stayin'];
+    for (const code of ['en','sv']) {
+      for (const st of states) {
+        if (typeof TEXT[code].verdict[st] !== 'function') return code + ' missing ' + st;
+      }
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('the two languages define the same ui keys',
+  (() => {
+    const a = Object.keys(TEXT.en.ui).sort();
+    const b = Object.keys(TEXT.sv.ui).sort();
+    const missing = a.filter((k) => !b.includes(k));
+    const extra = b.filter((k) => !a.includes(k));
+    if (missing.length) return 'sv missing: ' + missing.slice(0, 5).join(',');
+    if (extra.length) return 'sv extra: ' + extra.slice(0, 5).join(',');
+    return 'clean';
+  })(), 'clean');
+
+check('every weather code described in English is described in Swedish',
+  (() => {
+    for (const k of Object.keys(TEXT.en.sky)) {
+      if (!TEXT.sv.sky[k]) return 'sv sky missing ' + k;
+    }
+    return 'clean';
+  })(), 'clean');
+
+check('Swedish actually produces Swedish',
+  (() => {
+    localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+    const v = decide(at({}), flat(12), 0, S);
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    return v.line;
+  })(), 'GA UT'.replace('A', '\u00c5'));
+
+check('switching language does not change the decision',
+  (() => {
+    const now = at(WET), ahead = flat(12, WET);
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    const a = decide(now, ahead, 0, S);
+    localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+    const b = decide(now, ahead, 0, S);
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    return a.state === b.state && a.score === b.score && a.line !== b.line;
+  })(), true);
+
+check('no verdict in either language leaks undefined',
+  (() => {
+    const bad = /undefined|NaN|\[object/;
+    for (const code of ['en', 'sv']) {
+      localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+      for (const feels of [-30, -16, 5, 20, 30, 44]) {
+        for (const hour of [2, 9, 15, 21]) {
+          for (const isDay of [true, false]) {
+            for (const visits of [0, 1, 3]) {
+              for (const wcode of [0, 3, 65, 95]) {
+                const v = decide(at({ feels, hour, isDay, code: wcode }),
+                                 flat(12, { feels, hour, isDay, code: wcode }), visits, S);
+                const txt = v.tag + ' ' + v.line + ' ' + v.sub;
+                if (bad.test(txt)) return code + ': ' + txt.slice(0, 60);
+              }
+            }
+          }
+        }
+      }
+    }
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    return 'clean';
+  })(), 'clean');
+
+/* ================= units ================= */
+
+check('celsius is left alone', fmtTemp(20, { temp: 'c', wind: 'kmh' }), '20\u00b0C');
+check('fahrenheit converts', fmtTemp(20, { temp: 'f', wind: 'kmh' }), '68\u00b0F');
+check('freezing converts', fmtTemp(0, { temp: 'f', wind: 'kmh' }), '32\u00b0F');
+check('km/h is left alone', fmtWind(36, { temp: 'c', wind: 'kmh' }), '36 km/h');
+check('m/s converts', fmtWind(36, { temp: 'c', wind: 'ms' }), '10 m/s');
+check('mph converts', fmtWind(80.4672, { temp: 'c', wind: 'mph' }), '50 mph');
+
+check('units never touch the score',
+  (() => {
+    const h = at({ feels: 30, wind: 40 });
+    const before = scoreHour(h, S);
+    saveUnits({ temp: 'f', wind: 'mph' });
+    const after = scoreHour(h, S);
+    saveUnits({ temp: 'c', wind: 'kmh' });
+    return before === after;
+  })(), true);
+
+check('a rubbish unit setting falls back',
+  (() => {
+    localStorage.setItem('touchgrass.units', JSON.stringify({ temp: 'k', wind: 'furlongs' }));
+    const u = getUnits();
+    localStorage.removeItem('touchgrass.units');
+    return u.temp + '/' + u.wind;
+  })(), 'c/kmh');
+
+
+/* ================= since you were last out ================= */
+
+const REAL_LASTOUT = localStorage.getItem('touchgrass.lastout');
+
+check('no log means nothing to report', lastOut({}), null);
+
+check('a stamp from today is used exactly',
+  (() => {
+    const t = Date.now() - 90 * 60 * 1000;          // 90 minutes ago
+    localStorage.setItem('touchgrass.lastout', String(t));
+    const info = lastOut({ [todayKey()]: 1 });
+    return info.exact === true;
+  })(), true);
+
+check('90 minutes reads as hours',
+  (() => {
+    const t = Date.now() - 90 * 60 * 1000;
+    localStorage.setItem('touchgrass.lastout', String(t));
+    return /2 hours ago|an hour ago/.test(lastOutText(lastOut({ [todayKey()]: 1 })));
+  })(), true);
+
+check('a few minutes reads as minutes',
+  (() => {
+    localStorage.setItem('touchgrass.lastout', String(Date.now() - 10 * 60 * 1000));
+    return /10 minutes ago/.test(lastOutText(lastOut({ [todayKey()]: 1 })));
+  })(), true);
+
+// A stamp left over from an earlier day must not be used to claim
+// "20 minutes ago" about a trip logged days later in the calendar.
+check('a stale stamp is not applied to a different day',
+  (() => {
+    const old = new Date();
+    old.setDate(old.getDate() - 5);
+    localStorage.setItem('touchgrass.lastout', String(old.getTime()));
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const info = lastOut({ [dayKey(yesterday)]: 1 });
+    return info.exact === false && info.days === 1;
+  })(), true);
+
+check('a day-only record reads as yesterday',
+  (() => {
+    localStorage.removeItem('touchgrass.lastout');
+    const y = new Date();
+    y.setDate(y.getDate() - 1);
+    return lastOutText(lastOut({ [dayKey(y)]: 1 }));
+  })(), 'Last out yesterday');
+
+check('an older day-only record counts the days',
+  (() => {
+    localStorage.removeItem('touchgrass.lastout');
+    const d = new Date();
+    d.setDate(d.getDate() - 4);
+    return lastOutText(lastOut({ [dayKey(d)]: 1 }));
+  })(), 'Last out 4 days ago');
+
+check('it reads the most recent day, not the first',
+  (() => {
+    localStorage.removeItem('touchgrass.lastout');
+    const a = new Date(); a.setDate(a.getDate() - 9);
+    const b = new Date(); b.setDate(b.getDate() - 2);
+    return lastOut({ [dayKey(a)]: 1, [dayKey(b)]: 1 }).days;
+  })(), 2);
+
+check('a rubbish stamp does not throw',
+  (() => {
+    localStorage.setItem('touchgrass.lastout', 'not a number');
+    const txt = lastOutText(lastOut({ [todayKey()]: 1 }));
+    return typeof txt === 'string' && !/NaN|undefined/.test(txt);
+  })(), true);
+
+check('it says something in Swedish too',
+  (() => {
+    localStorage.removeItem('touchgrass.lastout');
+    localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+    const y = new Date(); y.setDate(y.getDate() - 1);
+    const txt = lastOutText(lastOut({ [dayKey(y)]: 1 }));
+    localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+    return txt.indexOf('Ute senast') === 0;
+  })(), true);
+
+if (REAL_LASTOUT === null) localStorage.removeItem('touchgrass.lastout');
+else localStorage.setItem('touchgrass.lastout', REAL_LASTOUT);
+
+/* ================= report ================= */
+
+if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');
+else localStorage.setItem('touchgrass.lang', REAL_LANG);
+
+const out = document.getElementById('out');
+out.innerHTML = lines.map((l) =>
+  `<span class="${l.startsWith('PASS') ? 'p' : 'f'}">${l.replace(/[<&]/g, (c) => c === '<' ? '&lt;' : '&amp;')}</span>`
+).join('\n') + `\n\n=== ${nPass} passed, ${nFail} failed ===`;
+document.title = `${nPass} passed, ${nFail} failed`;
+</script>
+</body>
+</html>

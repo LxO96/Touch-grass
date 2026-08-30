@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Solid to the very edge. The launcher masks widgets to its own corner
+     radius, so a border drawn here gets sliced off at the corners — better
+     to let the colour run out and match the system radius. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android"
+    android:shape="rectangle">
+    <solid android:color="@color/sun" />
+    <corners android:radius="@dimen/widget_radius" />
+</shape>

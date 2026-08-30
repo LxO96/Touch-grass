@@ -1,0 +1,115 @@
+import org.gradle.api.DefaultTask
+import org.gradle.api.file.ConfigurableFileCollection
+import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.tasks.InputFiles
+import org.gradle.api.tasks.OutputDirectory
+import org.gradle.api.tasks.PathSensitive
+import org.gradle.api.tasks.PathSensitivity
+import org.gradle.api.tasks.TaskAction
+
+plugins {
+    // AGP 9 compiles Kotlin itself; the separate kotlin-android plugin is gone.
+    alias(libs.plugins.android.application)
+}
+
+android {
+    namespace = "toys.touchgrass"
+    compileSdk = 37
+
+    defaultConfig {
+        applicationId = "toys.touchgrass"
+        minSdk = 24
+        targetSdk = 37
+        versionCode = 1
+        versionName = "1.0"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+}
+
+/* ==========================================================
+   The web app one directory up is the single source of truth.
+   It gets copied into the APK's assets at build time, so there
+   is never a second copy to keep in sync by hand.
+   ========================================================== */
+
+abstract class CopyWebAppTask : DefaultTask() {
+
+    @get:InputFiles
+    @get:PathSensitive(PathSensitivity.RELATIVE)
+    abstract val sourceFiles: ConfigurableFileCollection
+
+    @get:OutputDirectory
+    abstract val outputDir: DirectoryProperty
+
+    @TaskAction
+    fun copyThem() {
+        val out = outputDir.get().asFile
+        out.deleteRecursively()
+        out.mkdirs()
+
+        val missing = mutableListOf<String>()
+        sourceFiles.forEach { file ->
+            if (!file.exists()) missing += file.name
+            else file.copyTo(out.resolve(file.name), overwrite = true)
+        }
+        // Better a failed build than an APK containing half a website.
+        if (missing.isNotEmpty()) {
+            throw GradleException("Web app files missing: $missing")
+        }
+    }
+}
+
+val webAppFiles = listOf(
+    "index.html", "settings.html", "style.css",
+    // scoring.js is not just a page asset: the background worker evaluates
+    // it directly, so it must be in the APK.
+    "scoring.js", "lang.js", "core.js", "app.js", "settings.js",
+    "calendar.html", "record.js"
+)
+
+// The web app lives one level up, in web/. It is the source of truth for
+// both the site and the app.
+val webAppDir = "../web"
+
+val copyWebApp = tasks.register<CopyWebAppTask>("copyWebApp") {
+    description = "Copies the Touch Grass web app into the APK's assets."
+    sourceFiles.setFrom(webAppFiles.map { rootProject.file("$webAppDir/$it") })
+}
+
+// The unit test runs the real scoring.js, so tell it where that file is.
+tasks.withType<Test>().configureEach {
+    systemProperty("touchgrass.scoring.js", rootProject.file("../web/scoring.js").absolutePath)
+}
+
+androidComponents {
+    onVariants { variant ->
+        // Wires the task into the build graph and its output into assets.
+        variant.sources.assets?.addGeneratedSourceDirectory(
+            copyWebApp,
+            CopyWebAppTask::outputDir
+        )
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.appcompat)
+    implementation(libs.androidx.activity)
+    implementation(libs.androidx.webkit)
+    implementation(libs.androidx.work)
+    implementation(libs.rhino)
+
+    testImplementation(libs.junit)
+    testImplementation(libs.rhino)
+}

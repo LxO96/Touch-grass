@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Pre-31 launchers don't publish their radius; 16dp is the common one. -->
+    <dimen name="widget_radius">16dp</dimen>
+    <dimen name="widget_pad">12dp</dimen>
+</resources>

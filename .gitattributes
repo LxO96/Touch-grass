@@ -1,0 +1,9 @@
+# Keep text files LF in the repository, whatever the checkout platform does.
+* text=auto eol=lf
+
+# Binaries and the Gradle wrapper must not be touched.
+*.png binary
+*.apk binary
+*.jar binary
+gradlew text eol=lf
+gradlew.bat text eol=crlf

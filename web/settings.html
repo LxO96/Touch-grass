@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Settings | Touch Grass</title>
+<meta name="description" content="Tune what counts as good weather for going outside.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+</head>
+<body>
+
+<div class="wrap">
+
+  <h1><span data-t="settings">Settings</span>
+    <small data-t="settingsTagline">WHAT COUNTS AS GOOD WEATHER, TO YOU</small>
+  </h1>
+
+  <nav class="nav">
+    <a class="navlink" href="index.html" data-t="navToday">TODAY</a>
+    <a class="navlink" href="calendar.html" data-t="navRecord">THE YEAR</a>
+    <a class="navlink on" href="settings.html" data-t="navSettings">SETTINGS</a>
+  </nav>
+
+  <!-- ============ LANGUAGE & UNITS ============ -->
+  <section class="card">
+    <h2 data-t="language">Language</h2>
+    <p class="hint" data-t="languageHint">Everything on both pages, including the verdicts.</p>
+    <div class="modes" id="lang-picker"></div>
+
+    <h2 class="spaced" data-t="units">Units</h2>
+    <p class="hint" data-t="unitsHint">Display only &mdash; the score is always worked out the same way.</p>
+
+    <p class="unit-label" data-t="temperature">Temperature</p>
+    <div class="modes">
+      <button type="button" class="modebtn" id="unit-c">&deg;C</button>
+      <button type="button" class="modebtn" id="unit-f">&deg;F</button>
+    </div>
+
+    <p class="unit-label" data-t="windSpeed">Wind speed</p>
+    <div class="modes">
+      <button type="button" class="modebtn" id="unit-kmh">km/h</button>
+      <button type="button" class="modebtn" id="unit-ms">m/s</button>
+      <button type="button" class="modebtn" id="unit-mph">mph</button>
+    </div>
+  </section>
+
+  <!-- ============ LIVE PREVIEW ============ -->
+  <section class="card verdict" id="preview">
+    <span class="banner"><span class="animate" id="banner-tag" data-t="preview">PREVIEW</span></span>
+    <div class="verdict-body">
+      <p class="big" id="verdict-line">&hellip;</p>
+      <p class="sub" id="verdict-sub" data-t="noWeatherSub">Loading the weather so you can see what your dials do.</p>
+    </div>
+    <div class="verdict-meter">
+      <div class="meter-track"><div class="meter-fill" id="meter-fill"></div></div>
+      <span class="meter-label" id="meter-label" data-t="outsideAbility">OUTSIDE-ABILITY</span>
+    </div>
+  </section>
+
+  <!-- ============ THE DIALS ============ -->
+  <section class="card">
+    <h2 data-t="whatPutsYouOff">What puts you off</h2>
+    <p class="hint" data-t="dialsHint">Slide left if it doesn't bother you, right if it really does.
+      Everything updates live above.</p>
+    <div id="dials"></div>
+  </section>
+
+
+  <!-- ============ NOTIFICATIONS ============ -->
+  <section class="card" id="notify-card">
+    <h2 data-t="nudges">Nudges</h2>
+    <p class="hint" id="notify-avail" data-t="nudgesBrowser">
+      Reminders only work in the Android app &mdash; in a browser this
+      section does nothing.
+    </p>
+
+    <div class="opt">
+      <label class="switch">
+        <input type="checkbox" id="n-enabled">
+        <span data-t="remindMe">Remind me if I haven't been out</span>
+      </label>
+      <div class="opt-body">
+        <div class="modes">
+          <button type="button" class="modebtn" id="mode-clock" data-t="atASetTime">AT A SET TIME</button>
+          <button type="button" class="modebtn" id="mode-sunset" data-t="beforeSunset">BEFORE SUNSET</button>
+        </div>
+
+        <div id="mode-clock-body">
+          <div class="timerow">
+            <label class="hint" for="n-time" data-t="nudgeMeAt">Nudge me at</label>
+            <input type="time" id="n-time" value="17:00">
+          </div>
+        </div>
+
+        <div id="mode-sunset-body">
+          <div class="dial">
+            <div class="dial-head">
+              <label class="dial-name" for="n-before" data-t="hoursBeforeSunset">Hours before sunset</label>
+              <output class="dial-val" id="n-before-val">2</output>
+            </div>
+            <input type="range" id="n-before" min="0" max="6" step="0.5" value="2">
+            <div class="dial-ends"><span data-t="asTheSunSets">As the sun sets</span><span data-t="sixHoursBefore">Six hours before</span></div>
+          </div>
+          <p class="hint small" data-t="sunsetWhy">
+            A fixed time is wrong half the year &mdash; 5pm is mid-afternoon in
+            June and long dark in December. This follows the daylight.
+          </p>
+        </div>
+
+        <p class="hint small" id="n-when">&nbsp;</p>
+        <p class="hint small" data-t="oneNudgeADay">One nudge a day, and only if the day is still empty.</p>
+      </div>
+    </div>
+
+    <div class="opt">
+      <label class="switch">
+        <input type="checkbox" id="n-watch">
+        <span data-t="tellMeGood">Tell me when it's genuinely good out</span>
+      </label>
+      <div class="opt-body">
+        <p class="hint small" data-t="watchBlurb">
+          Checks the sky through the day and speaks up when a window opens
+          that beats your normal bar &mdash; so a rare good afternoon in
+          November doesn't pass you by.
+        </p>
+
+        <div class="dial">
+          <div class="dial-head">
+            <label class="dial-name" for="n-great" data-t="worthInterrupting">Worth interrupting me at</label>
+            <output class="dial-val" id="n-great-val">75</output>
+          </div>
+          <input type="range" id="n-great" min="40" max="100" step="1" value="75">
+          <div class="dial-ends"><span data-t="anyDecentHour">Any decent hour</span><span data-t="onlyGlorious">Only glorious ones</span></div>
+        </div>
+
+        <div class="timerow">
+          <span class="hint" data-t="onlyBetween">Only between</span>
+          <input type="time" id="n-from" value="09:00" aria-label="Quiet hours start">
+          <span class="hint" data-t="and">and</span>
+          <input type="time" id="n-to" value="20:00" aria-label="Quiet hours end">
+        </div>
+        <p class="hint small" data-t="nothingAt3am">Nothing will wake you at 3am.</p>
+
+        <label class="switch">
+          <input type="checkbox" id="n-alarm">
+          <span data-t="makeItAnAlarm">Make it an alarm, not a whisper</span>
+        </label>
+        <p class="hint small" data-t="alarmBlurb">
+          Rings and shows full screen instead of sitting quietly in the shade.
+          Still never outside the hours above.
+        </p>
+      </div>
+    </div>
+
+    <div class="toggle" id="test-row">
+      <button type="button" class="btn" id="btn-test" data-t="sendTestNudge">SEND A TEST NUDGE</button>
+    </div>
+    <p class="hint small" id="notify-note">&nbsp;</p>
+  </section>
+
+  <!-- ============ THE BAR ============ -->
+  <section class="card">
+    <h2 data-t="howFussy">How fussy are you?</h2>
+    <p class="hint" data-t="theBarHint">An hour has to beat this score before it counts as
+      &ldquo;good&rdquo;. Lower it and you'll be sent out in more weather.</p>
+
+    <div class="dial">
+      <div class="dial-head">
+        <label class="dial-name" for="bar" data-t="theBar">The bar</label>
+        <output class="dial-val" id="bar-val">60</output>
+      </div>
+      <input type="range" id="bar" min="25" max="90" step="1" value="60">
+      <div class="dial-ends"><span data-t="goOutInAnything">Go out in anything</span><span data-t="onlyPerfectDays">Only perfect days</span></div>
+    </div>
+  </section>
+
+  <!-- ============ SAFETY NOTE ============ -->
+  <section class="card note">
+    <h2 data-t="cantTurnOff">What you can't turn off</h2>
+    <p class="hint" data-t="safetyBlurb">
+      Dangerous heat (feels like 38&deg;C or more), dangerous cold (&minus;15&deg;C
+      or less) and lightning always override the dials. In those conditions the
+      app points you at the safest hour instead of the nearest one &mdash; no
+      slider will talk it into sending you out into a thunderstorm.
+    </p>
+    <p class="hint" data-t="houseRuleBlurb">
+      Otherwise: if you haven't been out yet today, it will never tell you to
+      stay in. The worst it will say is &ldquo;not yet, go at four&rdquo;.
+    </p>
+  </section>
+
+  <!-- ============ BACKUP ============ -->
+  <section class="card">
+    <h2 data-t="yourData">Your data</h2>
+    <p class="hint" data-t="dataBlurb">
+      Everything lives in this browser's local storage &mdash; nothing is sent
+      anywhere, and there's no account. Clearing site data wipes your year, so
+      if a long streak starts to mean something, keep a copy of this text.
+    </p>
+
+    <p class="datasum" id="data-summary">&nbsp;</p>
+
+    <div class="toggle">
+      <button type="button" class="btn big-btn" id="btn-share" data-t="share">SHARE / EMAIL IT</button>
+      <button type="button" class="btn" id="btn-copy" data-t="copy">COPY</button>
+    </div>
+    <p class="hint small" data-t="dataAdvice">
+      Send it to yourself, or save it to Drive or Files. Any copy will restore.
+    </p>
+
+    <p class="hint small">
+      <button type="button" class="linkbtn" id="btn-toggle-raw" data-t="showTheData">Show the raw text</button>
+    </p>
+
+    <div id="raw-wrap" hidden>
+      <textarea id="backup" class="backup" spellcheck="false" aria-label="Your saved data"></textarea>
+      <div class="toggle">
+        <button type="button" class="btn" id="btn-restore" data-t="restore">RESTORE FROM TEXT</button>
+      </div>
+    </div>
+
+    <p class="hint small" id="backup-note">&nbsp;</p>
+  </section>
+
+  <!-- ============ RESET ============ -->
+  <section class="card">
+    <h2 data-t="startOver">Start over</h2>
+    <p class="hint" data-t="startOverHint">Puts every dial back where it started. Leaves your year alone.</p>
+    <div class="toggle">
+      <button type="button" class="btn" id="btn-reset" data-t="resetDials">RESET THE DIALS</button>
+    </div>
+  </section>
+
+  <footer>
+    <span class="nofont">&#9632;</span> go outside <span class="nofont">&#9632;</span>
+  </footer>
+
+</div>
+
+<script src="scoring.js"></script>
+<script src="lang.js"></script>
+<script src="core.js"></script>
+<script src="settings.js"></script>
+</body>
+</html>

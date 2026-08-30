@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Touch Grass | Should You Go Outside?</title>
+<meta name="description" content="A decision machine that tells you whether to go outside, wait, or go out anyways — and tracks whether you managed it every day.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+</head>
+<body>
+
+<div class="wrap">
+
+  <h1><span data-t="title">Touch Grass</span>
+    <small data-t="tagline">SHOULD YOU GO OUTSIDE? &mdash; A DECISION MACHINE</small>
+  </h1>
+
+  <nav class="nav">
+    <a class="navlink on" href="index.html" data-t="navToday">TODAY</a>
+    <a class="navlink" href="calendar.html" data-t="navRecord">THE YEAR</a>
+    <a class="navlink" href="settings.html" data-t="navSettings">SETTINGS</a>
+  </nav>
+
+  <!-- ============ THE VERDICT ============ -->
+  <section class="card verdict" id="verdict">
+    <span class="banner"><span class="animate" id="banner-tag" data-t="thinking">THINKING</span></span>
+    <div class="verdict-body">
+      <p class="big" id="verdict-line" data-t="checking">CHECKING THE SKY&hellip;</p>
+      <p class="sub" id="verdict-sub" data-t="checkingSub">Hang on, asking the atmosphere a question.</p>
+    </div>
+    <div class="verdict-meter">
+      <div class="meter-track"><div class="meter-fill" id="meter-fill"></div></div>
+      <span class="meter-label" id="meter-label" data-t="outsideAbility">OUTSIDE-ABILITY</span>
+    </div>
+  </section>
+
+  <!-- ============ RIGHT NOW ============ -->
+  <section class="card" id="now-card">
+    <h2 data-t="rightNow">Right now</h2>
+    <p class="place" id="place" data-t="locating">Locating&hellip;</p>
+    <div class="stats">
+      <div class="stat"><span class="k" data-t="statSky">Sky</span><span class="v" id="s-sky">&mdash;</span><span class="t" id="t-sky"></span></div>
+      <div class="stat"><span class="k" data-t="statTemp">Temp</span><span class="v" id="s-temp">&mdash;</span><span class="t" id="t-temp"></span></div>
+      <div class="stat"><span class="k" data-t="statFeels">Feels</span><span class="v" id="s-feels">&mdash;</span><span class="t" id="t-feels"></span></div>
+      <div class="stat"><span class="k" data-t="statWind">Wind</span><span class="v" id="s-wind">&mdash;</span><span class="t" id="t-wind"></span></div>
+      <div class="stat"><span class="k" data-t="statRain">Rain</span><span class="v" id="s-rain">&mdash;</span><span class="t" id="t-rain"></span></div>
+    </div>
+    <p class="outlook" id="outlook"></p>
+  </section>
+
+  <!-- ============ FORECAST ============ -->
+  <section class="card">
+    <h2 data-t="next12">The next 12 hours</h2>
+    <p class="hint" data-t="next12Hint">Taller bar = better grass-touching weather.</p>
+    <div class="chart" id="chart"></div>
+  </section>
+
+  <!-- ============ TODAY'S TRIPS ============ -->
+  <section class="card" id="been-card">
+    <h2 data-t="today">Today</h2>
+    <p class="count" id="count">Not yet</p>
+    <p class="since" id="since">&nbsp;</p>
+    <div class="toggle">
+      <button type="button" class="btn big-btn" id="btn-add" data-t="iWentOut">+ I WENT OUT</button>
+      <button type="button" class="btn undo" id="btn-undo" title="Undo one trip">&minus;</button>
+    </div>
+    <p class="hint small" id="streak-note">&nbsp;</p>
+  </section>
+
+  <!-- ============ LOCATION ============ -->
+  <section class="card">
+    <h2 data-t="elsewhere">Somewhere else?</h2>
+    <p class="hint" data-t="elsewhereHint">Blocked location, or just curious about elsewhere.</p>
+    <form class="search" id="search-form" autocomplete="off">
+      <input type="text" id="search-input" data-t-ph="typeATown" aria-label="Search for a place">
+      <button type="submit" class="btn" data-t="findIt">FIND IT</button>
+    </form>
+    <div class="results" id="results"></div>
+    <p class="hint small"><button type="button" class="linkbtn" id="btn-geo" data-t="useMyLocation">&#9678; use my actual location</button></p>
+  </section>
+
+  <!-- ============ SOURCES ============ -->
+  <section class="card sources">
+    <h2 data-t="sources">Where this comes from</h2>
+    <dl class="srclist">
+      <dt data-t="sourceWeather">Weather and forecast</dt>
+      <dd><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourceSun">Sunrise and sunset</dt>
+      <dd><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourcePlace">Town search</dt>
+      <dd><a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener noreferrer">Open-Meteo Geocoding</a></dd>
+    </dl>
+    <p class="hint small" data-t="sourcesBlurb">Free, open weather data. No API key, no account, and your coordinates are sent to nobody else.</p>
+    <p class="hint small" id="fetched-at">&nbsp;</p>
+    <p class="hint small" data-t="sourceLicence">Data licensed CC BY 4.0.</p>
+  </section>
+
+  <footer>
+    <span class="nofont">&#9632;</span> <span data-t="footer">go outside</span> <span class="nofont">&#9632;</span>
+  </footer>
+
+</div>
+
+<script src="scoring.js"></script>
+<script src="lang.js"></script>
+<script src="core.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

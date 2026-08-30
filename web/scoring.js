@@ -1,0 +1,339 @@
+/* ==========================================================
+   TOUCH GRASS — what "good weather" means
+
+   This file is the single definition of the score. The web pages
+   load it directly, and the Android background worker evaluates
+   this exact file through Rhino, so there is no second copy to
+   drift out of step.
+
+   Because Rhino has to read it, keep this file plain ES5: var and
+   function only, no arrow functions, no template literals, no
+   `??`, no DOM, no localStorage. Everything it needs is passed in.
+   ========================================================== */
+
+/* Genuinely don't-go-out-there territory. Not user-tunable:
+   a slider should change your comfort, never your safety. */
+var TOO_HOT = 38;
+var TOO_COLD = -15;
+
+var TG_LIGHTNING = [95, 96, 99];
+var TG_ICE = [56, 57, 66, 67];
+var TG_HEAVY = [65, 75, 82, 86];
+var TG_FOG = [45, 48];
+
+function tgClamp(n, lo, hi) {
+  return Math.max(lo, Math.min(hi, n));
+}
+
+/* 11pm–5am. Dark is one thing; the small hours are another. */
+function tgIsDeepNight(hour) {
+  return hour >= 23 || hour < 5;
+}
+
+function tgHas(list, v) {
+  for (var i = 0; i < list.length; i++) {
+    if (list[i] === v) return true;
+  }
+  return false;
+}
+
+function tgNum(v, fallback) {
+  return (typeof v === 'number' && isFinite(v)) ? v : fallback;
+}
+
+/* ----------------------------------------------------------
+   The score. 0 = do not open the door. 100 = why are you
+   reading this.
+
+   h     — one hour: hour, feels, pop, precip, wind, isDay, code
+   dials — rain, cold, heat, wind, dark (multipliers, 1 = default)
+   ---------------------------------------------------------- */
+function tgScoreHour(h, dials) {
+  var out = 100;
+
+  var rain = tgNum(dials.rain, 1);
+  var cold = tgNum(dials.cold, 1);
+  var heat = tgNum(dials.heat, 1);
+  var wind = tgNum(dials.wind, 1);
+  var dark = tgNum(dials.dark, 1);
+
+  // --- wet stuff: usually the single biggest deterrent
+  out -= Math.min(55, tgNum(h.pop, 0) * 0.55) * rain;
+  out -= Math.min(30, tgNum(h.precip, 0) * 25) * rain;
+
+  // --- comfort curve on apparent temp (the "feels like").
+  //     Heat bites harder than cold: you can add a coat, you
+  //     can't take off your skin.
+  var t = tgNum(h.feels, 16);
+  if (t < 16) {
+    out -= Math.min(60, (16 - t) * 2.8) * cold;
+  } else if (t > 26) {
+    out -= Math.min(75, (t - 26) * 4.5) * heat;
+  }
+
+  // --- wind, forgiving until it starts pushing you around
+  var w = tgNum(h.wind, 0);
+  if (w > 22) out -= Math.min(28, (w - 22) * 1.3) * wind;
+
+  // --- dark is a big deal, and 3am is a bigger one
+  if (!h.isDay) out -= 38 * dark;
+  if (tgIsDeepNight(h.hour)) out -= 25 * dark;
+
+  // --- codes that deserve their own penalty
+  var c = h.code;
+  if (tgHas(TG_LIGHTNING, c))    out -= 45;           // never discounted
+  else if (tgHas(TG_ICE, c))     out -= 35 * cold;
+  else if (tgHas(TG_HEAVY, c))   out -= 20 * rain;
+  else if (tgHas(TG_FOG, c))     out -= 10 * rain;
+
+  return Math.round(tgClamp(out, 0, 100));
+}
+
+/* Weather that can hurt you, whatever the dials say. */
+function tgIsRisky(h) {
+  var t = tgNum(h.feels, 16);
+  return t >= TOO_HOT || t <= TOO_COLD || tgHas(TG_LIGHTNING, h.code);
+}
+
+/* ----------------------------------------------------------
+   Primitive-argument doorway, for callers that would rather not
+   marshal objects across a language boundary (i.e. Rhino).
+   Same formula — it goes through tgScoreHour like everyone else.
+   ---------------------------------------------------------- */
+function tgScoreArgs(hour, feels, pop, precip, wind, isDay, code,
+                     dRain, dCold, dHeat, dWind, dDark) {
+  return tgScoreHour(
+    { hour: hour, feels: feels, pop: pop, precip: precip,
+      wind: wind, isDay: !!isDay, code: code },
+    { rain: dRain, cold: dCold, heat: dHeat, wind: dWind, dark: dDark }
+  );
+}
+
+function tgIsRiskyArgs(feels, code) {
+  return tgIsRisky({ feels: feels, code: code });
+}
+
+/* ==========================================================
+   THE DECISION
+
+   Which of the outcomes applies, and the facts behind it — but
+   no words. Wording is the caller's business, so the page can
+   render full prose in your language and the widget can render
+   four words from the same verdict.
+
+   House rule, enforced here: if you have not been out today,
+   the state is never 'stayin'. There is always something to do
+   and a time attached to it.
+   ========================================================== */
+
+function tgDecide(now, ahead, visits, dials) {
+  var bar = tgNum(dials.bar, 60);
+  var beenOut = visits > 0;
+  var nowScore = tgScoreHour(now, dials);
+
+  var scored = [];
+  var i;
+  for (i = 0; i < ahead.length; i++) {
+    var h = ahead[i];
+    scored.push({
+      hour: h.hour,
+      label: h.label,
+      hoursFromNow: h.hoursFromNow,
+      isDay: !!h.isDay,
+      feels: h.feels,
+      code: h.code,
+      score: tgScoreHour(h, dials),
+      risky: tgIsRisky(h)
+    });
+  }
+
+  // The first hour that clears the bar AND genuinely beats now.
+  var window = null;
+  for (i = 0; i < scored.length; i++) {
+    if (scored[i].score >= bar && scored[i].score >= nowScore + 12) {
+      window = scored[i];
+      break;
+    }
+  }
+
+  // The least-bad hour, for when nothing clears the bar at all.
+  var best = null;
+  for (i = 0; i < scored.length; i++) {
+    if (best === null || scored[i].score > best.score) best = scored[i];
+  }
+
+  var dawn = null;
+  for (i = 0; i < scored.length; i++) {
+    if (scored[i].isDay) { dawn = scored[i]; break; }
+  }
+
+  var out = {
+    score: nowScore,
+    bar: bar,
+    beenOut: beenOut,
+    visits: visits,
+    nowFeels: tgNum(now.feels, 0),
+    nowCode: now.code,
+    target: null,
+    risk: null,
+    hours: scored
+  };
+
+  /* --- weather that can actually hurt you ----------------------- */
+  var t = tgNum(now.feels, 16);
+  if (tgIsRisky(now)) {
+    out.risk = t >= TOO_HOT ? 'hot' : (t <= TOO_COLD ? 'cold' : 'storm');
+    var safer = window || (best && best.score > nowScore ? best : null);
+    if (safer) {
+      out.state = 'waitRisky';
+      out.target = safer;
+    } else {
+      out.state = 'waitRiskyNoGap';
+    }
+    return out;
+  }
+
+  /* --- it's good out right now ---------------------------------- */
+  if (nowScore >= bar) {
+    out.state = beenOut ? 'goAgain' : 'go';
+    return out;
+  }
+
+  /* --- already been out: now it's genuinely optional ------------- */
+  if (beenOut) {
+    if (window) {
+      out.state = 'waitAgain';
+      out.target = window;
+    } else {
+      out.state = 'stayin';
+    }
+    return out;
+  }
+
+  /* --- not been out yet: there is always a time ------------------ */
+  if (window) {
+    out.state = 'wait';
+    out.target = window;
+    return out;
+  }
+
+  if (!now.isDay && dawn) {
+    out.state = 'waitDark';
+    out.target = dawn;
+    return out;
+  }
+
+  // Small hours with no dawn in sight: still never "go out anyways".
+  if (tgIsDeepNight(now.hour)) {
+    out.state = 'waitNight';
+    out.target = best;
+    return out;
+  }
+
+  if (best && best.score > nowScore + 8) {
+    out.state = 'anywaysBest';
+    out.target = best;
+    return out;
+  }
+
+  out.state = 'anyways';
+  return out;
+}
+
+/* JSON doorway, so Rhino callers can hand over arrays without
+   marshalling object graphs field by field. */
+function tgDecideJson(nowJson, aheadJson, visits, dialsJson) {
+  return JSON.stringify(tgDecide(
+    JSON.parse(nowJson), JSON.parse(aheadJson), visits, JSON.parse(dialsJson)
+  ));
+}
+
+/* ==========================================================
+   TRENDS
+
+   Where the numbers are heading for the rest of the local day.
+   Directions and moods only — no words, same as tgDecide — so
+   the page can write a sentence and the widget can draw an
+   arrow from the identical reading.
+   ========================================================== */
+
+function tgMean(xs) {
+  var total = 0;
+  for (var i = 0; i < xs.length; i++) total += xs[i];
+  return xs.length ? total / xs.length : 0;
+}
+
+/* How far outside the comfortable band a temperature sits. Used so a
+   falling temperature reads as "better" in a heatwave and "worse" in
+   the cold, rather than always meaning the same thing. */
+function tgDiscomfort(t) {
+  if (t < 16) return 16 - t;
+  if (t > 26) return t - 26;
+  return 0;
+}
+
+function tgTrends(now, ahead, dials) {
+  if (!ahead || !ahead.length) return null;
+
+  // The rest of the local day, unless there's too little of it left
+  // to mean anything.
+  var untilMidnight = 24 - now.hour;
+  var hours = [];
+  var i;
+  for (i = 0; i < ahead.length; i++) {
+    if (ahead[i].hoursFromNow <= untilMidnight) hours.push(ahead[i]);
+  }
+  var kind = 'restOfToday';
+  if (hours.length < 3) {
+    hours = ahead.slice(0, 6);
+    kind = 'nextFewHours';
+  }
+  if (!hours.length) return null;
+
+  var nowScore = tgScoreHour(now, dials);
+  var scores = [], feels = [], pops = [], winds = [], discomforts = [];
+  for (i = 0; i < hours.length; i++) {
+    scores.push(tgScoreHour(hours[i], dials));
+    feels.push(tgNum(hours[i].feels, 16));
+    pops.push(tgNum(hours[i].pop, 0));
+    winds.push(tgNum(hours[i].wind, 0));
+    discomforts.push(tgDiscomfort(tgNum(hours[i].feels, 16)));
+  }
+
+  // The outlook leans on the best hour still to come, not the average:
+  // one good window is what actually matters for getting out.
+  var bestAhead = Math.max.apply(null, scores);
+  var outlook = tgDir(bestAhead - nowScore, 8, true);
+
+  var t = tgDir(tgMean(feels) - tgNum(now.feels, 16), 2, true);
+  var tempMood = tgDir(
+    tgDiscomfort(tgNum(now.feels, 16)) - tgMean(discomforts), 1.5, true
+  ).mood;
+
+  var rain = tgDir(tgMean(pops) - tgNum(now.pop, 0), 12, false);
+  var wind = tgDir(tgMean(winds) - tgNum(now.wind, 0), 6, false);
+
+  return {
+    kind: kind,
+    outlook: { dir: outlook.dir, mood: outlook.mood, best: bestAhead, now: nowScore },
+    temp: { dir: t.dir, mood: tempMood },
+    rain: { dir: rain.dir, mood: rain.mood },
+    wind: { dir: wind.dir, mood: wind.mood }
+  };
+}
+
+function tgDir(delta, tol, higherIsBetter) {
+  if (!isFinite(delta) || Math.abs(delta) < tol) {
+    return { dir: 'flat', mood: 'same' };
+  }
+  var up = delta > 0;
+  return {
+    dir: up ? 'up' : 'down',
+    mood: (up === higherIsBetter) ? 'better' : 'worse'
+  };
+}
+
+function tgTrendsJson(nowJson, aheadJson, dialsJson) {
+  var out = tgTrends(JSON.parse(nowJson), JSON.parse(aheadJson), JSON.parse(dialsJson));
+  return JSON.stringify(out);
+}

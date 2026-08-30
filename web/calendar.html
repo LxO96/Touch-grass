@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>The year | Touch Grass</title>
+<meta name="description" content="Every day you got outside, as a month grid or a year at a glance.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=VT323&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌱</text></svg>">
+</head>
+<body>
+
+<div class="wrap">
+
+  <h1><span data-t="theYear">The year</span>
+    <small data-t="recordTagline">EVERY DAY YOU GOT OUT</small>
+  </h1>
+
+  <nav class="nav">
+    <a class="navlink" href="index.html" data-t="navToday">TODAY</a>
+    <a class="navlink on" href="calendar.html" data-t="navRecord">THE YEAR</a>
+    <a class="navlink" href="settings.html" data-t="navSettings">SETTINGS</a>
+  </nav>
+
+  <!-- ============ THE TALLY ============ -->
+  <section class="card">
+    <div class="scorebar">
+      <div class="scorebox"><span class="n" id="st-streak">0</span><span class="l" data-t="dayStreak">DAY STREAK</span></div>
+      <div class="scorebox"><span class="n" id="st-days">0</span><span class="l" data-t="daysOut">DAYS OUT</span></div>
+      <div class="scorebox"><span class="n" id="st-trips">0</span><span class="l" data-t="trips">TRIPS</span></div>
+      <div class="scorebox"><span class="n" id="st-best">0</span><span class="l" data-t="bestRun">BEST RUN</span></div>
+    </div>
+    <p class="since" id="since">&nbsp;</p>
+  </section>
+
+  <!-- ============ THE RECORD ============ -->
+  <section class="card">
+    <div class="cal-head">
+      <h2><span data-t="theYear">The year</span> <span class="yr" id="cal-year"></span></h2>
+      <div class="modes">
+        <button type="button" class="modebtn" id="view-month" data-t="viewMonth">MONTH</button>
+        <button type="button" class="modebtn" id="view-year" data-t="viewYear">YEAR</button>
+      </div>
+    </div>
+    <p class="hint" data-t="calHint">Tap any day to correct it.</p>
+
+    <!-- month view: big, thumb-sized targets -->
+    <div id="month-view">
+      <div class="month-bar">
+        <button type="button" class="stepbtn" id="prev-month" aria-label="Previous month">&#8249;</button>
+        <span class="month-name" id="month-name"></span>
+        <button type="button" class="stepbtn" id="next-month" aria-label="Next month">&#8250;</button>
+      </div>
+      <div class="mgrid-head" id="mgrid-head"></div>
+      <div class="mgrid" id="mgrid"></div>
+    </div>
+
+    <!-- year view: the whole thing at a glance -->
+    <div id="year-view">
+      <div class="cal-scroll">
+        <div class="cal" id="cal"></div>
+      </div>
+    </div>
+
+    <div class="legend">
+      <span data-t="none">none</span>
+      <span class="key lv0"></span><span class="key lv1"></span>
+      <span class="key lv2"></span><span class="key lv3"></span>
+      <span data-t="lots">lots</span>
+    </div>
+  </section>
+
+  <footer>
+    <span class="nofont">&#9632;</span> <span data-t="footer">go outside</span> <span class="nofont">&#9632;</span>
+  </footer>
+
+</div>
+
+<script src="scoring.js"></script>
+<script src="lang.js"></script>
+<script src="core.js"></script>
+<script src="record.js"></script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The year log and the dials live in WebView localStorage, which sits
+     under the app's own data directory, so a normal backup carries them. -->
+<full-backup-content>
+    <include domain="database" path="." />
+    <include domain="file" path="." />
+    <include domain="sharedpref" path="." />
+</full-backup-content>

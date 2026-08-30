@@ -1,0 +1,10 @@
+# Machine-specific SDK path — Android Studio regenerates it.
+local.properties
+
+.gradle/
+build/
+app/build/
+.idea/
+*.iml
+captures/
+.cxx/

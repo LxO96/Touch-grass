@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Touch Grass</string>
+    <string name="widget_name">Touch Grass</string>
+    <!-- Apostrophes must be escaped in Android string resources. -->
+    <string name="widget_description">Today\'s score, and what to do about it.</string>
+</resources>
