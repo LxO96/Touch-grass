@@ -30,13 +30,6 @@ function saveCalView(v) {
   try { localStorage.setItem('touchgrass.calview', v); } catch {}
 }
 
-function hintPara(text) {
-  const p = document.createElement('p');
-  p.className = 'hint';
-  p.textContent = text;
-  return p;
-}
-
 function renderRecord() {
   const log = getLog();
   const L = T().ui;

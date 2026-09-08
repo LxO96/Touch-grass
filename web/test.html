@@ -632,6 +632,162 @@ check('no verdict in either language leaks undefined',
     return 'clean';
   })(), 'clean');
 
+/* ================= why an hour scores what it does ================= */
+
+const sumParts = (e) => e.parts.reduce((t, p) => t + p.amount, 0);
+const partFor = (e, key) => e.parts.filter((p) => p.key === key)[0] || null;
+
+check('an explanation adds up to the score it explains', (() => {
+  const cases = [
+    at({}),
+    at({ pop: 80, precip: 3, feels: 4, wind: 30, isDay: false, hour: 3, code: 65 }),
+    at({ feels: 31, wind: 40, code: 95 }),
+    at({ feels: -20, code: 66, isDay: false, hour: 23 })
+  ];
+  return cases.every((h) => {
+    const e = tgExplainHour(h, S);
+    return Math.round(Math.max(0, Math.min(100, e.start + sumParts(e)))) === scoreHour(h, S);
+  });
+})(), true);
+
+check('a perfect hour has nothing to explain',
+  tgExplainHour(at({ pop: 0, precip: 0, feels: 20, wind: 5, isDay: true, hour: 14, code: 0 }), S).parts.length, 0);
+
+check('an explanation starts from 100',
+  tgExplainHour(at({}), S).start, 100);
+
+check('the rain dial at zero removes the rain row',
+  partFor(tgExplainHour(at({ pop: 90 }), Object.assign({}, S, { rain: 0 })), 'rain'), null);
+
+check('the rain dial at two doubles the rain penalty', (() => {
+  const one = partFor(tgExplainHour(at({ pop: 60 }), Object.assign({}, S, { rain: 1 })), 'rain');
+  const two = partFor(tgExplainHour(at({ pop: 60 }), Object.assign({}, S, { rain: 2 })), 'rain');
+  return two.amount === one.amount * 2;
+})(), true);
+
+check('lightning is not softened by any dial', (() => {
+  const numb = { rain: 0, cold: 0, heat: 0, wind: 0, dark: 0, bar: 60 };
+  return partFor(tgExplainHour(at({ code: 95 }), numb), 'code').amount;
+})(), -45);
+
+check('lightning is marked as not yours to tune',
+  partFor(tgExplainHour(at({ code: 95 }), S), 'code').fixed, true);
+
+check('a dialled penalty is not marked fixed',
+  partFor(tgExplainHour(at({ pop: 60 }), S), 'rain').fixed, false);
+
+check('darkness and the small hours are explained separately', (() => {
+  const e = tgExplainHour(at({ isDay: false, hour: 3 }), S);
+  return partFor(e, 'dark') !== null && partFor(e, 'night') !== null;
+})(), true);
+
+check('an ordinary dark evening is not blamed on the small hours',
+  partFor(tgExplainHour(at({ isDay: false, hour: 20 }), S), 'night'), null);
+
+check('every penalty a real hour can carry has a name in both languages', (() => {
+  const cases = [
+    at({ pop: 80, precip: 3 }), at({ feels: 2 }), at({ feels: 33 }),
+    at({ wind: 40 }), at({ isDay: false, hour: 3 }), at({ code: 95 })
+  ];
+  const keys = {};
+  cases.forEach((h) => tgExplainHour(h, S).parts.forEach((p) => { keys[p.key] = true; }));
+
+  const namesIn = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const f = T().ui.factors;
+    return Object.keys(keys).every((k) => typeof f[k] === 'string' && f[k].length > 0);
+  };
+  const ok = namesIn('en') && namesIn('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok && Object.keys(keys).length >= 6;
+})(), true);
+
+/* ================= the fact behind each penalty ================= */
+
+check('the rain row cites the chance of rain',
+  factorFact('rain', at({ pop: 53 })).indexOf('53') >= 0, true);
+
+check('the cold row cites the feels-like temperature',
+  factorFact('cold', at({ feels: 4 })), '4°C');
+
+check('the heat row cites the feels-like temperature',
+  factorFact('heat', at({ feels: 31 })), '31°C');
+
+check('the feels-like row follows your temperature unit', (() => {
+  saveUnits({ temp: 'f', wind: 'kmh' });
+  const f = factorFact('cold', at({ feels: 0 }));
+  saveUnits({ temp: 'c', wind: 'kmh' });
+  return f;
+})(), '32°F');
+
+check('the wind row follows your wind unit', (() => {
+  saveUnits({ temp: 'c', wind: 'ms' });
+  const f = factorFact('wind', at({ wind: 36 }));
+  saveUnits({ temp: 'c', wind: 'kmh' });
+  return f;
+})(), '10 m/s');
+
+check('the code row names the sky',
+  factorFact('code', at({ code: 95 })), skyName(95));
+
+check('darkness needs no further explanation',
+  factorFact('dark', at({ isDay: false })), '');
+
+check('an unknown row does not invent a fact',
+  factorFact('nonsense', at({})), '');
+
+/* ================= finding you ================= */
+
+// The bug: the page asked for a low-accuracy fix with an 8s timeout, so on
+// any device whose network provider had nothing cached it timed out without
+// ever asking the GPS — and then blamed you for blocking it.
+
+check('the first attempt allows a recent cached fix',
+  nextGeoAttempt(0).maximumAge, 600000);
+
+check('the first attempt does not wake the GPS',
+  !!nextGeoAttempt(0).enableHighAccuracy, false);
+
+check('a timed-out attempt escalates to high accuracy',
+  nextGeoAttempt(1, GEO_TIMEOUT).enableHighAccuracy, true);
+
+check('escalating asks for a fresh fix, not the cache that just failed',
+  nextGeoAttempt(1, GEO_TIMEOUT).maximumAge, 0);
+
+check('escalating waits longer than the attempt that timed out',
+  nextGeoAttempt(1, GEO_TIMEOUT).timeout > nextGeoAttempt(0).timeout, true);
+
+check('a position the device could not fix escalates too',
+  nextGeoAttempt(1, GEO_UNAVAILABLE) !== null, true);
+
+check('a denied position is never retried',
+  nextGeoAttempt(1, GEO_DENIED), null);
+
+check('there is no third attempt',
+  nextGeoAttempt(2, GEO_TIMEOUT), null);
+
+check('a denied position says it may be blocked',
+  /blocked/.test(geoFailMessage(GEO_DENIED)), true);
+
+check('a timeout does not blame blocking',
+  /blocked/.test(geoFailMessage(GEO_TIMEOUT)), false);
+
+check('a position the device could not fix reads the same as a timeout',
+  geoFailMessage(GEO_UNAVAILABLE), geoFailMessage(GEO_TIMEOUT));
+
+check('both location failures are translated', (() => {
+  localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+  const sv = [geoFailMessage(GEO_DENIED), geoFailMessage(GEO_TIMEOUT)];
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  const en = [geoFailMessage(GEO_DENIED), geoFailMessage(GEO_TIMEOUT)];
+  return sv[0] !== en[0] && sv[1] !== en[1] && sv[0] !== sv[1];
+})(), true);
+
+// The Today page calls hintPara() for its search hints but only loads
+// core.js — it lived in record.js, which only the calendar page loads.
+check('hintPara is available to any page that loads core',
+  typeof hintPara, 'function');
+
 /* ================= units ================= */
 
 check('celsius is left alone', fmtTemp(20, { temp: 'c', wind: 'kmh' }), '20\u00b0C');

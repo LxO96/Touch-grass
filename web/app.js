@@ -222,24 +222,39 @@ function renderToday(visits) {
   if (since) since.textContent = lastOutText(lastOut());
 }
 
+/* Which hour's breakdown is open, by its index in the chart, or null.
+   Kept across re-renders so changing a dial in another tab doesn't
+   slam the panel shut mid-read. */
+let openHour = null;
+
 function renderChart(data, s) {
   const chart = $('chart');
   chart.innerHTML = '';
   const cols = [{ label: T().ui.notYet === 'Not yet' ? 'now' : 'nu',
-                  score: scoreHour(data.now, s), isNow: true }]
+                  score: scoreHour(data.now, s), isNow: true, hour: data.now }]
     .concat(data.ahead.slice(0, 11).map((h) => ({
-      label: String(h.hour).padStart(2, '0'), score: h.score, isNow: false
+      label: String(h.hour).padStart(2, '0'), score: h.score, isNow: false, hour: h
     })));
 
-  for (const c of cols) {
+  cols.forEach((c, i) => {
     const col = document.createElement('div');
     col.className = 'bar-col';
 
-    const bar = document.createElement('div');
+    // A button, not a div: the breakdown has to be reachable by
+    // keyboard and readable to a screen reader, not just tappable.
+    const bar = document.createElement('button');
+    bar.type = 'button';
     bar.className = 'bar ' + (c.score >= s.bar ? 'good' : c.score >= 35 ? 'meh' : 'bad')
-                  + (c.isNow ? ' now' : '');
+                  + (c.isNow ? ' now' : '') + (i === openHour ? ' open' : '');
     bar.style.height = Math.max(4, c.score) + '%';
     bar.title = `${c.label}: ${c.score}/100`;
+    bar.setAttribute('aria-expanded', String(i === openHour));
+    bar.setAttribute('aria-label', `${c.label}: ${c.score}/100`);
+    bar.addEventListener('click', () => {
+      openHour = (openHour === i) ? null : i;
+      renderChart(data, s);
+      renderWhy(cols, s);
+    });
 
     const lbl = document.createElement('span');
     lbl.className = 'bar-hr';
@@ -247,6 +262,74 @@ function renderChart(data, s) {
 
     col.append(bar, lbl);
     chart.append(col);
+  });
+
+  renderWhy(cols, s);
+}
+
+/* The panel under the chart: where an hour's 100 points went. */
+function renderWhy(cols, s) {
+  const box = $('why');
+  if (!box) return;
+
+  const col = openHour === null ? null : cols[openHour];
+  if (!col) { box.hidden = true; box.innerHTML = ''; return; }
+
+  const L = T().ui;
+  const e = tgExplainHour(col.hour, s);
+  box.hidden = false;
+  box.innerHTML = '';
+
+  const head = document.createElement('h3');
+  head.className = 'why-h';
+  head.textContent = `${col.label} — ${e.total}/100`;
+  box.append(head);
+
+  const rows = document.createElement('div');
+  rows.className = 'why-rows';
+
+  const row = (name, fact, amount, cls) => {
+    const r = document.createElement('div');
+    r.className = 'why-row' + (cls ? ' ' + cls : '');
+    const n = document.createElement('span');
+    n.className = 'why-name';
+    n.textContent = name;
+    const f = document.createElement('span');
+    f.className = 'why-fact';
+    f.textContent = fact;
+    const a = document.createElement('span');
+    a.className = 'why-amt';
+    // A real minus sign, not a hyphen: this is a sum, and it is read aloud.
+    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+    r.append(n, f, a);
+    return r;
+  };
+
+  rows.append(row(L.startedAt, '', e.start));
+  for (const p of e.parts) {
+    rows.append(row(L.factors[p.key] || p.key, factorFact(p.key, col.hour),
+                    p.amount, p.fixed ? 'fixed' : ''));
+  }
+  rows.append(row('', '', e.total, 'total'));
+  box.append(rows);
+
+  const note = document.createElement('p');
+  note.className = 'why-note';
+  note.textContent = e.total >= s.bar ? L.aboveBar(s.bar) : L.belowBar(s.bar);
+  box.append(note);
+
+  if (e.parts.some((p) => p.fixed)) {
+    const safety = document.createElement('p');
+    safety.className = 'why-note fixed';
+    safety.textContent = L.notTunable;
+    box.append(safety);
+  }
+
+  if (e.floored) {
+    const floored = document.createElement('p');
+    floored.className = 'why-note';
+    floored.textContent = L.flooredAt;
+    box.append(floored);
   }
 }
 
@@ -303,7 +386,7 @@ function fail(msg) {
   $('verdict').classList.remove('go', 'wait', 'anyways', 'stayin');
   $('banner-tag').textContent = 'HMM';
   $('verdict-line').textContent = T().ui.noIdea;
-  $('verdict-sub').textContent = msg + ' Try searching for a town below — that always works.';
+  $('verdict-sub').textContent = msg + ' ' + T().ui.noIdeaSub;
   $('meter-fill').style.width = '0%';
   $('meter-label').textContent = 'OUTSIDE-ABILITY —';
 }
@@ -336,6 +419,19 @@ function askGeo() {
     if (!STATE.data) fail(T().ui.noGeo);
     return;
   }
+  tryGeo(0);
+}
+
+/* Attempt n of nextGeoAttempt's plan. The card keeps saying "Locating…"
+   between attempts: a failure banner at eight seconds, while the GPS is
+   still being asked, would be a lie we then have to take back. */
+function tryGeo(n, prevCode) {
+  const opts = nextGeoAttempt(n, prevCode);
+  if (!opts) {
+    if (!STATE.data) fail(geoFailMessage(prevCode));
+    return;
+  }
+
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const { latitude: lat, longitude: lon } = pos.coords;
@@ -351,12 +447,8 @@ function askGeo() {
         ? { lat, lon, label: saved.label, named: true }
         : { lat, lon, label: coordLabel(lat, lon) });
     },
-    () => {
-      if (!STATE.data) {
-        fail(T().ui.geoBlocked);
-      }
-    },
-    { timeout: 8000, maximumAge: 600000 }
+    (err) => tryGeo(n + 1, err.code),
+    opts
   );
 }
 
