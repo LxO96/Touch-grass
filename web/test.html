@@ -1083,6 +1083,48 @@ check('SMHI symbol 18 normalises to WMO 61',
 check('a broken SMHI payload normalises to nothing, not a throw',
   tgNormaliseSmhi({ nonsense: true }).length, 0);
 
+/* ================= Task 6: MET Norway ================= */
+
+check('MET clear sky is WMO clear', TG_MET_WMO.clearsky, 0);
+check('MET fair is WMO mostly clear', TG_MET_WMO.fair, 1);
+check('MET partlycloudy is WMO partly cloudy', TG_MET_WMO.partlycloudy, 2);
+check('MET cloudy is WMO overcast', TG_MET_WMO.cloudy, 3);
+check('MET heavy rain is WMO heavy rain', TG_MET_WMO.heavyrain, 65);
+
+check('every MET thunder variant is a thunderstorm', (() => {
+  return Object.keys(TG_MET_WMO)
+    .filter((k) => k.indexOf('thunder') >= 0)
+    .every((k) => TG_MET_WMO[k] === 95);
+})(), true);
+
+check('every MET symbol maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return Object.keys(TG_MET_WMO).every((k) => typeof sky[TG_MET_WMO[k]] === 'string');
+})(), true);
+
+check('the day suffix is stripped before mapping',
+  tgNormaliseMet(FIXTURE_MET)[0].code, 2);
+
+check('the MET fixture normalises to three hours',
+  tgNormaliseMet(FIXTURE_MET).length, 3);
+
+check('MET feels-like comes straight from the API',
+  tgNormaliseMet(FIXTURE_MET)[2].feels, 14.3);
+
+check('MET wind is converted to km/h',
+  Math.round(tgNormaliseMet(FIXTURE_MET)[0].wind * 100) / 100, 11.16);
+
+check('an hour past the hourly horizon is skipped, not half-read', (() => {
+  const trimmed = { properties: { timeseries: [
+    { time: '2026-09-09T06:00:00Z',
+      data: { instant: { details: { air_temperature: 9, wind_speed: 1 } } } }
+  ] } };
+  return tgNormaliseMet(trimmed).length;
+})(), 0);
+
+check('a broken MET payload normalises to nothing, not a throw',
+  tgNormaliseMet({ nonsense: true }).length, 0);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

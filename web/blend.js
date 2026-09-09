@@ -167,3 +167,64 @@ function tgNormaliseSmhi(d) {
   }
   return out;
 }
+
+/* MET Norway's symbol stems onto WMO. The _day / _night /
+   _polartwilight suffix is dropped: daylight comes from Open-Meteo,
+   not from a symbol name. MET draws no hail distinction, so every
+   thunder variant is plain WMO 95. */
+var TG_MET_WMO = {
+  clearsky: 0, fair: 1, partlycloudy: 2, cloudy: 3, fog: 45,
+
+  lightrain: 61, rain: 63, heavyrain: 65,
+  lightrainshowers: 80, rainshowers: 81, heavyrainshowers: 82,
+
+  lightsleet: 71, sleet: 73, heavysleet: 75,
+  lightsleetshowers: 85, sleetshowers: 85, heavysleetshowers: 86,
+
+  lightsnow: 71, snow: 73, heavysnow: 75,
+  lightsnowshowers: 85, snowshowers: 85, heavysnowshowers: 86,
+
+  lightrainandthunder: 95, rainandthunder: 95, heavyrainandthunder: 95,
+  lightrainshowersandthunder: 95, rainshowersandthunder: 95,
+  heavyrainshowersandthunder: 95,
+  lightsleetandthunder: 95, sleetandthunder: 95, heavysleetandthunder: 95,
+  lightsleetshowersandthunder: 95, sleetshowersandthunder: 95,
+  heavysleetshowersandthunder: 95,
+  lightsnowandthunder: 95, snowandthunder: 95, heavysnowandthunder: 95,
+  lightsnowshowersandthunder: 95, snowshowersandthunder: 95,
+  heavysnowshowersandthunder: 95
+};
+
+function tgMetCode(symbol) {
+  if (!symbol) return 3;
+  var stem = String(symbol).split('_')[0];
+  return TG_MET_WMO[stem] === undefined ? 3 : TG_MET_WMO[stem];
+}
+
+function tgNormaliseMet(d) {
+  var out = [];
+  if (!d || !d.properties || !d.properties.timeseries) return out;
+  var series = d.properties.timeseries;
+  var i;
+  for (i = 0; i < series.length; i++) {
+    var t = series[i];
+    var inst = t && t.data && t.data.instant && t.data.instant.details;
+    var next = t && t.data && t.data.next_1_hours;
+    // Past the hourly horizon MET coarsens to six-hour blocks, which
+    // carry no single hour's rain. Those are left out rather than
+    // smeared across six hours.
+    if (!inst || !next || !next.details) continue;
+    var temp = tgNum(inst.air_temperature, 16);
+    var windMs = tgNum(inst.wind_speed, 0);
+    out.push({
+      time: t.time,
+      temp: temp,
+      feels: tgNum(inst.apparent_air_temperature, temp),
+      pop: tgNum(next.details.probability_of_precipitation, 0),
+      precip: tgNum(next.details.precipitation_amount, 0),
+      wind: windMs * 3.6,
+      code: tgMetCode(next.summary && next.summary.symbol_code)
+    });
+  }
+  return out;
+}
