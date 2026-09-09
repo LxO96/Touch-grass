@@ -118,3 +118,14 @@ function tgVoteCode(at, w) {
   }
   return best === null ? 0 : best;
 }
+
+/* Australian BOM apparent temperature.
+   t degrees C, rh percent, ws metres per second. */
+function tgApparent(t, rh, ws) {
+  var temp = tgNum(t, 16);
+  var hum = tgNum(rh, 50);
+  var wind = tgNum(ws, 0);
+  // Water vapour pressure, hPa.
+  var e = (hum / 100) * 6.105 * Math.exp((17.27 * temp) / (237.7 + temp));
+  return temp + 0.33 * e - 0.70 * wind - 4.00;
+}

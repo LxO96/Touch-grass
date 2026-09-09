@@ -1021,6 +1021,22 @@ check('a thunderstorm with the weight behind it does survive', (() => {
   return out[0].code;
 })(), 95);
 
+check('apparent temperature matches the worked example', (() => {
+  // SMHI Stockholm 2026-09-08T21:00Z: 16.1 C, 87% RH, 2.4 m/s.
+  // e  = 0.87 * 6.105 * exp(17.27*16.1/(237.7+16.1)) = 15.885
+  // AT = 16.1 + 0.33*15.885 - 0.70*2.4 - 4.00        = 15.662
+  return Math.round(tgApparent(16.1, 87, 2.4) * 10) / 10;
+})(), 15.7);
+
+check('wind makes it feel colder',
+  tgApparent(10, 70, 10) < tgApparent(10, 70, 0), true);
+
+check('humidity makes a warm day feel hotter',
+  tgApparent(30, 90, 2) > tgApparent(30, 30, 2), true);
+
+check('a missing humidity does not produce nonsense',
+  isFinite(tgApparent(16, null, 2)), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');
