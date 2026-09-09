@@ -228,3 +228,50 @@ function tgNormaliseMet(d) {
   }
   return out;
 }
+
+/* "2026-09-08T23:00" local, plus the offset, as a UTC stamp matching
+   what SMHI and MET publish. Built by hand rather than through a
+   local Date so a visitor's own timezone can never leak into it. */
+function tgLocalToUtc(local, offsetSeconds) {
+  var y = parseInt(local.slice(0, 4), 10);
+  var mo = parseInt(local.slice(5, 7), 10);
+  var d = parseInt(local.slice(8, 10), 10);
+  var h = parseInt(local.slice(11, 13), 10);
+  var mi = parseInt(local.slice(14, 16), 10);
+  var t = new Date(Date.UTC(y, mo - 1, d, h, mi) - (offsetSeconds * 1000));
+  function p(n) { return (n < 10 ? '0' : '') + n; }
+  return t.getUTCFullYear() + '-' + p(t.getUTCMonth() + 1) + '-' +
+         p(t.getUTCDate()) + 'T' + p(t.getUTCHours()) + ':' +
+         p(t.getUTCMinutes()) + ':00Z';
+}
+
+function tgNormaliseOm(d) {
+  var res = { hours: [],
+              daylight: { byTime: {}, localHourByTime: {}, sunsetMin: null } };
+  if (!d || !d.hourly || !d.hourly.time) return res;
+
+  var off = tgNum(d.utc_offset_seconds, 0);
+  var H = d.hourly;
+  var i;
+  for (i = 0; i < H.time.length; i++) {
+    var utc = tgLocalToUtc(H.time[i], off);
+    res.hours.push({
+      time: utc,
+      temp: tgNum(H.temperature_2m[i], 16),
+      feels: tgNum(H.apparent_temperature[i], 16),
+      pop: tgNum(H.precipitation_probability[i], 0),
+      precip: tgNum(H.precipitation[i], 0),
+      wind: tgNum(H.wind_speed_10m[i], 0),
+      code: tgNum(H.weather_code[i], 3)
+    });
+    res.daylight.byTime[utc] = H.is_day[i] === 1;
+    res.daylight.localHourByTime[utc] = parseInt(H.time[i].slice(11, 13), 10);
+  }
+
+  var sunset = d.daily && d.daily.sunset && d.daily.sunset[0];
+  if (sunset && sunset.length >= 16) {
+    res.daylight.sunsetMin = parseInt(sunset.slice(11, 13), 10) * 60 +
+                             parseInt(sunset.slice(14, 16), 10);
+  }
+  return res;
+}

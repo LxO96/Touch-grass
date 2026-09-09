@@ -1125,6 +1125,29 @@ check('an hour past the hourly horizon is skipped, not half-read', (() => {
 check('a broken MET payload normalises to nothing, not a throw',
   tgNormaliseMet({ nonsense: true }).length, 0);
 
+/* ================= Task 7: Open-Meteo ================= */
+
+check('Open-Meteo normalises to its hourly rows',
+  tgNormaliseOm(FIXTURE_OM).hours.length, 3);
+
+check('Open-Meteo local times are converted to UTC for merging',
+  tgNormaliseOm(FIXTURE_OM).hours[0].time, '2026-09-08T21:00:00Z');
+
+check('Open-Meteo wind is already km/h and passes through',
+  tgNormaliseOm(FIXTURE_OM).hours[0].wind, 9.0);
+
+check('daylight is recorded against the UTC stamp',
+  tgNormaliseOm(FIXTURE_OM).daylight.byTime['2026-09-08T21:00:00Z'], false);
+
+check('the local hour is recorded against the UTC stamp',
+  tgNormaliseOm(FIXTURE_OM).daylight.localHourByTime['2026-09-08T22:00:00Z'], 0);
+
+check('sunset comes through as minutes since local midnight',
+  tgNormaliseOm(FIXTURE_OM).daylight.sunsetMin, 19 * 60 + 41);
+
+check('a broken Open-Meteo payload yields no hours, not a throw',
+  tgNormaliseOm({ nonsense: true }).hours.length, 0);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');
