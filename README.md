@@ -97,6 +97,22 @@ Clearing site data wipes your year, so **Settings → Your data** offers
 Android's share sheet — Drive, Gmail, Files, whatever you have. Any copy will
 restore.
 
+## Running the tests
+
+`web/test.html` is the logic suite — open it in a browser and read the tally
+at the foot. The same tests run in a terminal, and exit non-zero on a failure:
+
+```
+node web/run-tests.js
+```
+
+The Android side has its own, which evaluates `web/scoring.js` through Rhino
+so the two runtimes cannot drift:
+
+```
+cd android && gradlew test
+```
+
 ## How the score works
 
 `web/scoring.js` is the single definition of what "good weather" means. Every hour
