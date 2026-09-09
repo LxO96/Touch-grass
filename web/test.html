@@ -198,11 +198,19 @@ check('safety beats every dial turned off',
 
 /* ================= night ================= */
 
+// flat() would stamp the same `hour` on every forecast row, because the
+// spec it copies carries one — which made every "future" hour identical
+// to now. since() advances them properly, which matters now that the
+// verdict cares which side of midnight an hour falls on.
+//
+// 23:00 is deliberately not in this list: with no hours left of today it
+// now says go now, which "the day you owe is today" section pins.
 check('"go out anyways" never happens in the small hours',
   (() => {
-    for (const hour of [23, 0, 1, 2, 3, 4]) {
-      const spec = Object.assign({ isDay: false, hour }, WET);
-      const v = decide(at(spec), flat(12, spec), 0, S);
+    for (const hour of [0, 1, 2, 3, 4]) {
+      const spec = Object.assign({ isDay: false }, WET);
+      const ahead = since(hour, Array.from({ length: 12 }, () => spec));
+      const v = decide(at(Object.assign({ hour }, spec)), ahead, 0, S);
       if (v.state === 'anyways') return `leaked at ${hour}h`;
     }
     return 'clean';
@@ -218,8 +226,9 @@ check('a dark winter evening still gets pushed out',
 
 check('the small hours still name an hour to go',
   (() => {
-    const spec = Object.assign({ isDay: false, hour: 2 }, WET);
-    const d = tgDecide(at(spec), flat(12, spec), 0, S);
+    const spec = Object.assign({ isDay: false }, WET);
+    const d = tgDecide(at(Object.assign({ hour: 2 }, spec)),
+                       since(2, Array.from({ length: 12 }, () => spec)), 0, S);
     return d.state === 'waitNight' && !!d.target;
   })(), true);
 
@@ -1466,6 +1475,106 @@ check('the string doorway agrees with the object one', (() => {
     JSON.stringify(FIXTURE_OM), null, JSON.stringify(FIXTURE_SMHI)));
   return JSON.stringify(a) === JSON.stringify(b);
 })(), true);
+
+/* ================= the day you owe is today ================= */
+
+// An evening forecast reaches into tomorrow morning. The house rule says
+// there is always a time attached — but if you have not been out today,
+// that time has to be today. These build a forecast from an arbitrary
+// hour so the midnight boundary can be crossed on purpose.
+function since(nowHour, specs, s) {
+  return specs.map((spec, i) => {
+    const h = at(Object.assign({ hour: (nowHour + i + 1) % 24 }, spec));
+    h.hoursFromNow = i + 1;
+    h.label = String(h.hour).padStart(2, '0');
+    h.score = scoreHour(h, s || S);
+    return h;
+  });
+}
+
+const DRY_NIGHT = { isDay: false, pop: 5, precip: 0, code: 0 };
+const WET_NIGHT = { isDay: false, pop: 100, precip: 3, code: 65 };
+const FINE_DAY  = { isDay: true,  pop: 5,  precip: 0, code: 0 };
+
+// 22:00, soaked, not been out. 23:00 is merely dry; 07:00 tomorrow is
+// lovely. The old code reached over midnight and said "go at seven".
+const eveningNow = at(Object.assign({ hour: 22 }, WET_NIGHT));
+const eveningAhead = since(22, [
+  DRY_NIGHT,                                    // 23 — tonight, dry, still dark
+  WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,   // 00-03 tomorrow
+  WET_NIGHT, WET_NIGHT, WET_NIGHT,              // 04-06 tomorrow
+  FINE_DAY, FINE_DAY, FINE_DAY, FINE_DAY        // 07-10 tomorrow, lovely
+]);
+
+check('an evening verdict never sends you to tomorrow morning',
+  decide(eveningNow, eveningAhead, 0, S).decision.target.hour, 23);
+
+check('an evening verdict names a today state, not a wait-for-tomorrow',
+  decide(eveningNow, eveningAhead, 0, S).decision.state, 'anywaysBest');
+
+// Once you have been out, the day is no longer owed and tomorrow is fair
+// game again.
+check('having been out, tomorrow morning is allowed back',
+  decide(eveningNow, eveningAhead, 1, S).decision.target.hour, 7);
+
+// Midnight itself belongs to tomorrow.
+check('the hour of midnight is not part of today', (() => {
+  const ahead = since(22, [WET_NIGHT, FINE_DAY, FINE_DAY, FINE_DAY]);
+  const d = decide(eveningNow, ahead, 0, S).decision;
+  return d.target;
+})(), null);
+
+// 23:00 with nothing left of today: the least-bad hour is this one.
+check('at the last hour of the day it says go now, not wait for the night',
+  decide(at(Object.assign({ hour: 23 }, WET_NIGHT)),
+         since(23, [WET_NIGHT, WET_NIGHT, WET_NIGHT, FINE_DAY]),
+         0, S).decision.state, 'anyways');
+
+check('at the last hour of the day there is no hour to point at',
+  decide(at(Object.assign({ hour: 23 }, WET_NIGHT)),
+         since(23, [WET_NIGHT, WET_NIGHT, WET_NIGHT, FINE_DAY]),
+         0, S).decision.target, null);
+
+// After midnight the new day has hours in it again, so dawn still counts.
+check('at two in the morning, dawn is today and still worth naming', (() => {
+  const d = decide(at(Object.assign({ hour: 2 }, WET_NIGHT)),
+    since(2, [WET_NIGHT, WET_NIGHT, WET_NIGHT,
+              Object.assign({}, WET_NIGHT, { isDay: true }),
+              Object.assign({}, WET_NIGHT, { isDay: true })]),
+    0, S).decision;
+  return d.state + ':' + d.target.hour;
+})(), 'waitDark:6');
+
+// Danger is the exception: in a storm the honest answer is "not tonight".
+check('weather that can hurt you may still point at tomorrow', (() => {
+  // Order matters: WET_NIGHT carries code 65, so the lightning code has
+  // to be applied after it, not before.
+  const stormNow = at(Object.assign({}, WET_NIGHT, { hour: 22, code: 95 }));
+  const ahead = since(22, [
+    Object.assign({}, WET_NIGHT, { code: 95 }),
+    WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,
+    FINE_DAY, FINE_DAY, FINE_DAY, FINE_DAY
+  ]);
+  const d = decide(stormNow, ahead, 0, S).decision;
+  return d.state + ':' + d.target.hour;
+})(), 'waitRisky:7');
+
+// The safety path names the first hour that clears your bar, not merely
+// the best one — so a decent early hour beats a perfect later one. This
+// separates the two routes through that path, which a single storm test
+// cannot: with only "the best hour" it would answer 9 instead of 5.
+check('danger names the first safe hour, not the finest one', (() => {
+  const stormNow = at(Object.assign({}, WET_NIGHT, { hour: 22, code: 95 }));
+  const decent = { isDay: true, pop: 30, precip: 0, code: 0 };   // clears 60
+  const perfect = { isDay: true, pop: 0, precip: 0, code: 0 };   // better still
+  const ahead = since(22, [
+    Object.assign({}, WET_NIGHT, { code: 95 }),
+    WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,
+    decent,                       // 06 — first to clear the bar, at 84
+    perfect, perfect, perfect, perfect   // 07-10, better still at 100
+  ]);
+  return decide(stormNow, ahead, 0, S).decision.target.hour;
+})(), 6);
 
 /* ================= report ================= */
 

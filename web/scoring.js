@@ -174,24 +174,50 @@ function tgDecide(now, ahead, visits, dials) {
   }
 
   // The first hour that clears the bar AND genuinely beats now.
-  var window = null;
-  for (i = 0; i < scored.length; i++) {
-    if (scored[i].score >= bar && scored[i].score >= nowScore + 12) {
-      window = scored[i];
-      break;
+  function windowIn(list) {
+    var j;
+    for (j = 0; j < list.length; j++) {
+      if (list[j].score >= bar && list[j].score >= nowScore + 12) return list[j];
     }
+    return null;
   }
 
   // The least-bad hour, for when nothing clears the bar at all.
-  var best = null;
-  for (i = 0; i < scored.length; i++) {
-    if (best === null || scored[i].score > best.score) best = scored[i];
+  function bestIn(list) {
+    var j, b = null;
+    for (j = 0; j < list.length; j++) {
+      if (b === null || list[j].score > b.score) b = list[j];
+    }
+    return b;
   }
 
-  var dawn = null;
-  for (i = 0; i < scored.length; i++) {
-    if (scored[i].isDay) { dawn = scored[i]; break; }
+  function dawnIn(list) {
+    var j;
+    for (j = 0; j < list.length; j++) {
+      if (list[j].isDay) return list[j];
+    }
+    return null;
   }
+
+  /* An evening forecast reaches into tomorrow morning, and "go at seven"
+     is no answer to "have you been outside today". So while the day is
+     still owed, only today's remaining hours can be named. Once you have
+     been out, the day is settled and tomorrow is fair game again.
+
+     The local hour is what wraps at midnight, and ahead never spans more
+     than twelve hours, so it can only wrap once: any hour numbered above
+     the current one is still today. */
+  var candidates = scored;
+  if (!beenOut) {
+    candidates = [];
+    for (i = 0; i < scored.length; i++) {
+      if (scored[i].hour > now.hour) candidates.push(scored[i]);
+    }
+  }
+
+  var window = windowIn(candidates);
+  var best = bestIn(candidates);
+  var dawn = dawnIn(candidates);
 
   var out = {
     score: nowScore,
@@ -209,7 +235,12 @@ function tgDecide(now, ahead, visits, dials) {
   var t = tgNum(now.feels, 16);
   if (tgIsRisky(now)) {
     out.risk = t >= TOO_HOT ? 'hot' : (t <= TOO_COLD ? 'cold' : 'storm');
-    var safer = window || (best && best.score > nowScore ? best : null);
+    // Danger reads the full window, today or not: telling someone to
+    // pick the least-bad hour of a thunderstorm is the one thing this
+    // rule must never do.
+    var riskBest = bestIn(scored);
+    var safer = windowIn(scored) ||
+                (riskBest && riskBest.score > nowScore ? riskBest : null);
     if (safer) {
       out.state = 'waitRisky';
       out.target = safer;
@@ -250,7 +281,7 @@ function tgDecide(now, ahead, visits, dials) {
   }
 
   // Small hours with no dawn in sight: still never "go out anyways".
-  if (tgIsDeepNight(now.hour)) {
+  if (best && tgIsDeepNight(now.hour)) {
     out.state = 'waitNight';
     out.target = best;
     return out;
