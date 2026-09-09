@@ -275,3 +275,74 @@ function tgNormaliseOm(d) {
   }
   return res;
 }
+
+/* The one call the rest of the app makes. Raw parsed payloads in
+   (any of them null), one forecast out, in the shape tgDecide and
+   tgTrends already read.
+
+   Hours with no Open-Meteo daylight are dropped rather than guessed:
+   an hour with no is_day scores as night, and night is the
+   second-largest penalty there is. */
+function tgForecast(raw) {
+  var bySource = {};
+  var spine = null;
+
+  if (raw.om) {
+    spine = tgNormaliseOm(raw.om);
+    if (spine.hours.length) bySource.om = spine.hours;
+  }
+  if (raw.met) {
+    var met = tgNormaliseMet(raw.met);
+    if (met.length) bySource.met = met;
+  }
+  if (raw.smhi) {
+    var smhi = tgNormaliseSmhi(raw.smhi);
+    if (smhi.length) bySource.smhi = smhi;
+  }
+
+  if (!spine || !spine.hours.length) return null;
+  var blended = tgBlend(bySource);
+  if (!blended.length) return null;
+
+  var seen = {};
+  var rows = [];
+  var i, m;
+  for (i = 0; i < blended.length; i++) {
+    var b = blended[i];
+    var isDay = spine.daylight.byTime[b.time];
+    var localHour = spine.daylight.localHourByTime[b.time];
+    if (isDay === undefined || localHour === undefined) continue;
+
+    for (m = 0; m < b.sources.length; m++) seen[b.sources[m]] = true;
+
+    rows.push({
+      time: b.time, hour: localHour, feels: b.feels, temp: b.temp,
+      pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
+      isDay: isDay, hoursFromNow: 0, contributors: b.sources
+    });
+  }
+  if (!rows.length) return null;
+
+  // The first blended hour is "now"; the next twelve are what is coming.
+  var now = rows[0];
+  var ahead = rows.slice(1, 13);
+  for (i = 0; i < ahead.length; i++) ahead[i].hoursFromNow = i + 1;
+
+  var names = [];
+  for (i in seen) {
+    if (seen.hasOwnProperty(i)) names.push(i);
+  }
+
+  return { now: now, ahead: ahead, sunsetMin: spine.daylight.sunsetMin,
+           sources: names };
+}
+
+/* JSON doorway, so Rhino callers can hand over three response bodies
+   without marshalling object graphs field by field. */
+function tgForecastJson(omJson, metJson, smhiJson) {
+  return JSON.stringify(tgForecast({
+    om: omJson ? JSON.parse(omJson) : null,
+    met: metJson ? JSON.parse(metJson) : null,
+    smhi: smhiJson ? JSON.parse(smhiJson) : null
+  }));
+}

@@ -1148,6 +1148,54 @@ check('sunset comes through as minutes since local midnight',
 check('a broken Open-Meteo payload yields no hours, not a throw',
   tgNormaliseOm({ nonsense: true }).hours.length, 0);
 
+/* ================= Task 8: the doorway ================= */
+
+check('a forecast from all three names all three sources', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.sources.sort().join(',');
+})(), 'met,om,smhi');
+
+check('a forecast carries the shape the decision expects', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI });
+  const h = f.ahead[0];
+  return typeof h.hour === 'number' && typeof h.feels === 'number' &&
+         typeof h.isDay === 'boolean' && typeof h.hoursFromNow === 'number' &&
+         typeof h.code === 'number';
+})(), true);
+
+check('daylight always comes from Open-Meteo, never from the vote', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.ahead.every((h) => h.isDay === false) && f.now.isDay === false;
+})(), true);
+
+check('an hour Open-Meteo does not cover is dropped, not guessed', (() => {
+  // MET's 20:00Z precedes Open-Meteo's first hour (21:00Z), so it has
+  // no daylight and must not appear.
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET });
+  return f.now.time;
+})(), '2026-09-08T21:00:00Z');
+
+check('sunset survives the blend',
+  tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI }).sunsetMin, 19 * 60 + 41);
+
+check('Open-Meteo alone still produces a forecast', (() => {
+  const f = tgForecast({ om: FIXTURE_OM });
+  return f.ahead.length > 0 && f.sources.join(',') === 'om';
+})(), true);
+
+check('no sources at all produces nothing, not a crash',
+  tgForecast({}), null);
+
+check('without Open-Meteo there is no daylight, so no forecast',
+  tgForecast({ met: FIXTURE_MET, smhi: FIXTURE_SMHI }), null);
+
+check('the string doorway agrees with the object one', (() => {
+  const a = tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI });
+  const b = JSON.parse(tgForecastJson(
+    JSON.stringify(FIXTURE_OM), null, JSON.stringify(FIXTURE_SMHI)));
+  return JSON.stringify(a) === JSON.stringify(b);
+})(), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');
