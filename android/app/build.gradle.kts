@@ -1,3 +1,5 @@
+import java.io.File
+import java.util.Properties
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.ConfigurableFileCollection
 import org.gradle.api.file.DirectoryProperty
@@ -20,14 +22,39 @@ android {
         applicationId = "toys.touchgrass"
         minSdk = 24
         targetSdk = 37
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = 2
+        versionName = "0.2"
+    }
+
+    /* The release key. Kept outside the repository — a keystore in a
+       working tree is one `git clean` away from being gone, and losing it
+       means never being able to update the app for anyone who installed
+       it. Its location and password live in android/keystore.properties,
+       which is gitignored; without that file the release build still
+       configures, it just produces an unsigned APK. */
+    signingConfigs {
+        create("release") {
+            val props = Properties()
+            val file = rootProject.file("keystore.properties")
+            if (file.exists()) {
+                file.inputStream().use { stream -> props.load(stream) }
+                storeFile = File(props.getProperty("storeFile"))
+                storePassword = props.getProperty("storePassword")
+                keyAlias = props.getProperty("keyAlias")
+                keyPassword = props.getProperty("keyPassword")
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Only sign when the properties file is actually present, so a
+            // fresh clone can still build a debug APK without the key.
+            if (rootProject.file("keystore.properties").exists()) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

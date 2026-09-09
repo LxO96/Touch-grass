@@ -19,3 +19,9 @@ dist/
 
 # Scratch files used for screenshots and manual testing
 _*.html
+
+# Signing. The keystore lives outside the repo entirely; this file points
+# at it and carries its password, so it must never be committed.
+android/keystore.properties
+*.jks
+*.keystore
