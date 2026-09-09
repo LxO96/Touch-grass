@@ -40,7 +40,11 @@ object Scoring {
         val label: String = ""
     )
 
-    /** Reads scoring.js. Supplied by the app; swapped for a file in tests. */
+    /**
+     * Reads the shared JS: scoring.js and blend.js, concatenated,
+     * scoring.js first (blend.js depends on tgNum). Supplied by the app;
+     * swapped for the web/ files directly in tests.
+     */
     fun interface Source {
         fun read(): String
     }
@@ -109,6 +113,14 @@ object Scoring {
     fun isDeepNight(hour: Int): Boolean = call(
         "tgIsDeepNight", arrayOf<Any?>(hour)
     ) { RhinoContext.toBoolean(it) }
+
+    /** The blend, evaluated by the web app's own blend.js. */
+    fun blend(omJson: String?, metJson: String?, smhiJson: String?): String? =
+        call(
+            "tgForecastJson",
+            arrayOf<Any?>(omJson, metJson, smhiJson)
+        ) { RhinoContext.toString(it) }
+            .takeIf { it != "null" && it.isNotBlank() }
 
     /** One outcome, decided by the same tgDecide() the page uses. */
     data class Verdict(

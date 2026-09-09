@@ -1,6 +1,9 @@
 package toys.touchgrass
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -20,11 +23,15 @@ class ScoringEngineTest {
 
     @Before
     fun useTheRealFile() {
-        val path = System.getProperty("touchgrass.scoring.js")
+        val scoringPath = System.getProperty("touchgrass.scoring.js")
             ?: error("touchgrass.scoring.js system property not set by Gradle")
-        val f = File(path)
-        assertTrue("scoring.js not found at $path", f.exists())
-        Scoring.init { f.readText() }
+        val blendPath = System.getProperty("touchgrass.blend.js")
+            ?: error("touchgrass.blend.js system property not set by Gradle")
+        val scoring = File(scoringPath)
+        val blend = File(blendPath)
+        assertTrue("scoring.js not found at $scoringPath", scoring.exists())
+        assertTrue("blend.js not found at $blendPath", blend.exists())
+        Scoring.init { scoring.readText() + blend.readText() }
     }
 
     private fun fixtures(): List<String> =
@@ -102,5 +109,28 @@ class ScoringEngineTest {
         assertTrue(Scoring.score(awful, Scoring.Dials()) in 0..100)
         assertTrue(Scoring.score(lovely, Scoring.Dials()) in 0..100)
         assertTrue(Scoring.score(lovely, Scoring.Dials()) > Scoring.score(awful, Scoring.Dials()))
+    }
+
+    @Test
+    fun `blends the same way the browser does`() {
+        val om = File("../web/fixtures-om.json").readText()
+        val smhi = File("../web/fixtures-smhi.json").readText()
+
+        val out = Scoring.blend(om, null, smhi)
+        assertNotNull(out)
+
+        val json = JSONObject(out!!)
+        assertEquals(2, json.getJSONArray("sources").length())
+
+        // Open-Meteo alone supplies daylight, so every hour must carry it.
+        val now = json.getJSONObject("now")
+        assertTrue(now.has("isDay"))
+        assertEquals(23, now.getInt("hour"))       // 21:00Z is 23:00 local
+        assertEquals(19 * 60 + 41, json.getInt("sunsetMin"))
+    }
+
+    @Test
+    fun `a blend with nothing in it is null`() {
+        assertNull(Scoring.blend(null, null, null))
     }
 }

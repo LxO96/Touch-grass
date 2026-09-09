@@ -28,7 +28,10 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 
     override suspend fun doWork(): Result {
         val c = applicationContext
-        Scoring.init { c.assets.open("scoring.js").bufferedReader().use { it.readText() } }
+        Scoring.init {
+            c.assets.open("scoring.js").bufferedReader().use { it.readText() } +
+                c.assets.open("blend.js").bufferedReader().use { it.readText() }
+        }
 
         val cal = Calendar.getInstance()
         val today = String.format(

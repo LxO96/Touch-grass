@@ -89,7 +89,11 @@ val copyWebApp = tasks.register<CopyWebAppTask>("copyWebApp") {
 
 // The unit test runs the real scoring.js, so tell it where that file is.
 tasks.withType<Test>().configureEach {
+    // So File("../web/...") in the tests resolves from android/, matching
+    // where the web app actually lives relative to this module.
+    workingDir = rootProject.projectDir
     systemProperty("touchgrass.scoring.js", rootProject.file("../web/scoring.js").absolutePath)
+    systemProperty("touchgrass.blend.js", rootProject.file("../web/blend.js").absolutePath)
 }
 
 androidComponents {
@@ -112,4 +116,8 @@ dependencies {
 
     testImplementation(libs.junit)
     testImplementation(libs.rhino)
+    // Android's org.json is a build-time stub that throws on every call in
+    // JVM tests; this real implementation lets the test parse Scoring.blend's
+    // JSON output directly.
+    testImplementation("org.json:json:20231013")
 }
