@@ -29,3 +29,67 @@ function tgWeigh(present) {
   }
   return out;
 }
+
+var TG_MEAN_FIELDS = ['feels', 'temp', 'pop', 'precip', 'wind'];
+
+/* bySource: { met: [hour...], smhi: [...], om: [...] }
+   Each hour: { time, feels, temp, pop, precip, wind, code }
+   Returns one array of blended hours, in time order. */
+function tgBlend(bySource) {
+  var keys = [];
+  var k;
+  for (k in bySource) {
+    if (bySource.hasOwnProperty(k) && bySource[k] && bySource[k].length) keys.push(k);
+  }
+
+  // Gather every hour any source knows about, keyed by its UTC stamp.
+  var byTime = {};
+  var i, j, h;
+  for (i = 0; i < keys.length; i++) {
+    var hours = bySource[keys[i]];
+    for (j = 0; j < hours.length; j++) {
+      h = hours[j];
+      if (!byTime[h.time]) byTime[h.time] = {};
+      byTime[h.time][keys[i]] = h;
+    }
+  }
+
+  var times = [];
+  for (k in byTime) {
+    if (byTime.hasOwnProperty(k)) times.push(k);
+  }
+  times.sort();
+
+  var out = [];
+  for (i = 0; i < times.length; i++) {
+    var at = byTime[times[i]];
+    var present = [];
+    for (k in at) {
+      if (at.hasOwnProperty(k)) present.push(k);
+    }
+    var w = tgWeigh(present);
+
+    var blended = { time: times[i], sources: present };
+    for (j = 0; j < TG_MEAN_FIELDS.length; j++) {
+      var field = TG_MEAN_FIELDS[j];
+      var sum = 0;
+      var m;
+      for (m = 0; m < present.length; m++) {
+        sum += tgNum(at[present[m]][field], 0) * w[present[m]];
+      }
+      blended[field] = sum;
+    }
+    blended.code = tgVoteCode(at, w);
+    out.push(blended);
+  }
+  return out;
+}
+
+/* Replaced properly in Task 3. */
+function tgVoteCode(at, w) {
+  var k;
+  for (k in at) {
+    if (at.hasOwnProperty(k)) return at[k].code;
+  }
+  return 0;
+}
