@@ -43,64 +43,50 @@ const clockTime = (ms) => new Date(ms)
    DATA
    ========================================================== */
 
-async function getWeather(lat, lon) {
-  const url = 'https://api.open-meteo.com/v1/forecast'
-    + `?latitude=${lat}&longitude=${lon}`
-    + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
-    + '&hourly=apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
-    + '&daily=sunset'
-    + '&forecast_days=2&timezone=auto';
+const OM_URL = (lat, lon) => 'https://api.open-meteo.com/v1/forecast'
+  + `?latitude=${lat}&longitude=${lon}`
+  + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
+  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
+  + '&daily=sunset&forecast_days=2&timezone=auto';
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Weather service said ${res.status}`);
-  const d = await res.json();
+const MET_URL = (lat, lon) =>
+  `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${lat}&lon=${lon}`;
 
-  const now = {
-    temp:   d.current.temperature_2m,
-    feels:  d.current.apparent_temperature,
-    precip: d.current.precipitation,
-    code:   d.current.weather_code,
-    wind:   d.current.wind_speed_10m,
-    isDay:  d.current.is_day === 1,
-    // Local hour at the location, not in the visitor's own timezone.
-    hour:   parseInt(d.current.time.slice(11, 13), 10),
-    pop:    0
-  };
+const SMHI_URL = (lat, lon) =>
+  'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1'
+  + `/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
 
-  // Line the hourly array up with the current local hour.
-  const H = d.hourly;
-  const stamp = d.current.time.slice(0, 13);            // "YYYY-MM-DDTHH"
-  let i = H.time.findIndex((t) => t.slice(0, 13) === stamp);
-  if (i < 0) i = 0;
-
-  // Give "now" the current hour's rain probability — the API
-  // doesn't hand one out for the current conditions.
-  now.pop = H.precipitation_probability[i] ?? 0;
-
-  const ahead = [];
-  for (let k = 1; k <= 12 && i + k < H.time.length; k++) {
-    const j = i + k;
-    // Read the hour straight off the string: these timestamps are already
-    // in the location's timezone, and Date() would drag in the visitor's.
-    const hr = parseInt(H.time[j].slice(11, 13), 10);
-    ahead.push({
-      time:  H.time[j],
-      hour:  hr,
-      label: T().hourLabel(hr),
-      feels: H.apparent_temperature[j],
-      pop:   H.precipitation_probability[j] ?? 0,
-      precip: H.precipitation[j] ?? 0,
-      code:  H.weather_code[j],
-      wind:  H.wind_speed_10m[j],
-      isDay: H.is_day[j] === 1,
-      hoursFromNow: k
-    });
+/* One source failing must not cost us the other two, so each is
+   allowed to come back null. SMHI answers only for the Nordics and
+   404s elsewhere, which is not an error worth reporting — it is the
+   blend degrading exactly as designed. */
+async function fetchOrNull(url) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  const sunsetStr = d.daily && d.daily.sunset ? d.daily.sunset[0] : null;
-  const sunsetMin = sunsetStr ? clockToMinutes(sunsetStr.slice(11)) : null;
+async function getWeather(lat, lon) {
+  const [om, met, smhi] = await Promise.all([
+    fetchOrNull(OM_URL(lat, lon)),
+    fetchOrNull(MET_URL(lat, lon)),
+    fetchOrNull(SMHI_URL(lat, lon))
+  ]);
 
-  return { now, ahead, sunsetMin };
+  const f = tgForecast({ om, met, smhi });
+  if (!f) throw new Error('No weather service answered');
+
+  // hourLabel is the page's business, not the blend's.
+  for (const h of f.ahead) h.label = T().hourLabel(h.hour);
+  return f;
 }
 
 // Scores depend on settings, so they're recomputed on every render
