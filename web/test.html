@@ -1168,6 +1168,24 @@ check('daylight always comes from Open-Meteo, never from the vote', (() => {
   return f.ahead.every((h) => h.isDay === false) && f.now.isDay === false;
 })(), true);
 
+check('daylight is read from the Open-Meteo spine, not derived from the vote', (() => {
+  // FIXTURE_OM is all-night, which cannot distinguish "read from the
+  // spine" from "always false". Copy it (never mutate the shared
+  // fixture) and flip exactly one hour to day, keeping every weather
+  // code non-zero so a vote-derived stand-in (e.g. code === clearsky)
+  // cannot reproduce the pattern by accident.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  om.hourly.is_day = [0, 1, 0];
+  const f = tgForecast({ om, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  const days = [f.now.isDay].concat(f.ahead.map((h) => h.isDay));
+  return days.join(',');
+})(), 'false,true,false');
+
+check('hoursFromNow counts up from now, not down', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.ahead.map((h) => h.hoursFromNow).join(',');
+})(), '1,2');
+
 check('an hour Open-Meteo does not cover is dropped, not guessed', (() => {
   // MET's 20:00Z precedes Open-Meteo's first hour (21:00Z), so it has
   // no daylight and must not appear.
