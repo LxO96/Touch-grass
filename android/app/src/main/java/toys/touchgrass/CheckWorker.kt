@@ -24,6 +24,49 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
 
     companion object {
         const val FORCE = "force"
+
+        /**
+         * Whether `h` still falls today.
+         *
+         * `ahead` reaches into tomorrow morning, and both jobs here only run
+         * while the day is still owed — the same condition under which
+         * tgDecide refuses to look past midnight. Without this the widget
+         * says "go out anyways" while the notification built from the very
+         * same forecast says "6am looks better". One predicate, so the two
+         * callers cannot drift apart.
+         */
+        internal fun stillToday(h: Scoring.Hour, nowHour: Int) =
+            nowHour + h.hoursFromNow < 24
+
+        /**
+         * The nudge's wording, with the dials and the clock passed in so it
+         * can be read without a Context.
+         */
+        internal fun nudgeText(
+            f: Weather.Forecast?,
+            dials: Scoring.Dials,
+            nowHour: Int
+        ): String {
+            if (f == null) return "You haven't been out yet today. There's still time."
+
+            val nowScore = Scoring.score(f.now, dials)
+            val best = f.ahead
+                .filter { !Scoring.isRisky(it) }
+                .filter { stillToday(it, nowHour) }
+                .maxByOrNull { Scoring.score(it, dials) }
+            val bestScore = best?.let { Scoring.score(it, dials) } ?: 0
+
+            return when {
+                nowScore >= dials.bar ->
+                    "It's $nowScore/100 out there right now. Go on — even ten minutes counts."
+                best != null && bestScore >= dials.bar && bestScore > nowScore + 12 ->
+                    "Not much out there now, but ${best.label} looks better ($bestScore/100). " +
+                        "That's your window."
+                else ->
+                    "Today never really gets good, which makes now as fine a time as any. " +
+                        "Coat on, twenty minutes."
+            }
+        }
     }
 
     override suspend fun doWork(): Result {
@@ -48,7 +91,7 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         // the once-a-day guard.
         if (inputData.getBoolean(FORCE, false)) {
             val f = if (Prefs.hasPlace(c)) Weather.fetch(Prefs.lat(c), Prefs.lon(c)) else null
-            Notifier.nudge(c, nudgeText(c, f))
+            Notifier.nudge(c, nudgeText(c, f, nowHour))
             return Result.success()
         }
 
@@ -78,7 +121,7 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         if (wantNudge) {
             val due = Prefs.reminderDueMinutes(c, forecast?.sunsetMinutes)
             if (nowMinutes >= due) {
-                Notifier.nudge(c, nudgeText(c, forecast))
+                Notifier.nudge(c, nudgeText(c, forecast, nowHour))
                 Prefs.markNudged(c, today)
             }
         }
@@ -116,7 +159,7 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         val best = forecast.ahead
             .filter { !Scoring.isRisky(it) }
             .filter { inWindow(c, it.hour) }
-            .filter { nowHour + it.hoursFromNow < 24 }   // no wrapping into tomorrow
+            .filter { stillToday(it, nowHour) }
             .maxByOrNull { Scoring.score(it, dials) }
             ?: return
 
@@ -162,24 +205,6 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     private fun inWindow(c: Context, hour: Int) =
         hour >= Prefs.windowStart(c) && hour < Prefs.windowEnd(c)
 
-    private fun nudgeText(c: Context, f: Weather.Forecast?): String {
-        if (f == null) return "You haven't been out yet today. There's still time."
-
-        val dials = Prefs.dials(c)
-        val nowScore = Scoring.score(f.now, dials)
-        val best = f.ahead.filter { !Scoring.isRisky(it) }
-            .maxByOrNull { Scoring.score(it, dials) }
-        val bestScore = best?.let { Scoring.score(it, dials) } ?: 0
-
-        return when {
-            nowScore >= dials.bar ->
-                "It's $nowScore/100 out there right now. Go on — even ten minutes counts."
-            best != null && bestScore >= dials.bar && bestScore > nowScore + 12 ->
-                "Not much out there now, but ${best.label} looks better ($bestScore/100). " +
-                    "That's your window."
-            else ->
-                "Today never really gets good, which makes now as fine a time as any. " +
-                    "Coat on, twenty minutes."
-        }
-    }
+    private fun nudgeText(c: Context, f: Weather.Forecast?, nowHour: Int): String =
+        nudgeText(f, Prefs.dials(c), nowHour)
 }

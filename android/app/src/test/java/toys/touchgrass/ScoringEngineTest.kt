@@ -288,6 +288,48 @@ class ScoringEngineTest {
         assertNull(Weather.fetch(59.329, 18.069, 3_000_000_000L, bodies(html, null, null)))
     }
 
+    /* ---------------- the day you owe is today ---------------- */
+
+    /** One forecast hour: either lovely or soaked, day or night. */
+    private fun hr(hour: Int, from: Int, fine: Boolean, day: Boolean) = Scoring.Hour(
+        hour = hour,
+        feels = if (fine) 18.0 else 4.0,
+        pop = if (fine) 0.0 else 100.0,
+        precip = if (fine) 0.0 else 3.0,
+        wind = if (fine) 4.0 else 20.0,
+        isDay = day,
+        code = if (fine) 0 else 65,
+        hoursFromNow = from,
+        label = Weather.label(hour)
+    )
+
+    @Test
+    fun `the nudge never names an hour that is past midnight`() {
+        // 21:00, soaked, not been out — the only decent hour in the forecast
+        // is 06:00 tomorrow. The widget's verdict refuses to look past
+        // midnight while the day is owed; a nudge saying "6am looks better"
+        // contradicts it from the same forecast.
+        val now = hr(21, 0, fine = false, day = false)
+        val ahead = (1..9).map {
+            val h = (21 + it) % 24
+            hr(h, it, fine = h == 6, day = h == 6)
+        }
+        val text = CheckWorker.nudgeText(Weather.Forecast(now, ahead, null), Scoring.Dials(), 21)
+
+        assertTrue("named tomorrow: $text", !text.contains("6am"))
+        assertTrue(text, text.startsWith("Today never really gets good"))
+    }
+
+    @Test
+    fun `the nudge still names a good hour that is later today`() {
+        // The other half of the same rule: today's hours must survive it.
+        val now = hr(10, 0, fine = false, day = true)
+        val ahead = (1..9).map { hr(10 + it, it, fine = 10 + it == 14, day = true) }
+        val text = CheckWorker.nudgeText(Weather.Forecast(now, ahead, null), Scoring.Dials(), 10)
+
+        assertTrue("did not name this afternoon: $text", text.contains("2pm"))
+    }
+
     /* ---------------- the device's language is not ours --------------- */
 
     /**
