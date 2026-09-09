@@ -49,6 +49,15 @@ object Scoring {
         fun read(): String
     }
 
+    /**
+     * The shared JS files, in evaluation order, separated so they cannot
+     * run into each other. Plain concatenation worked only because
+     * scoring.js happens to end in a newline; the day one of these files
+     * ends in a `//` comment it would swallow the next file's first line,
+     * silently, with the error surfacing somewhere else entirely.
+     */
+    fun join(vararg parts: String): String = parts.joinToString("\n;\n")
+
     private var scope: ScriptableObject? = null
     private var source: Source? = null
 

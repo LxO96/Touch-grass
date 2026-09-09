@@ -22,36 +22,87 @@ object Weather {
     /** MET Norway's terms require an identifying User-Agent. */
     private const val USER_AGENT = "TouchGrass/1.0 github.com/LxO96/Touch-grass"
 
-    private const val CACHE_MS = 45 * 60 * 1000L   // the spec's reuse window
+    internal const val CACHE_MS = 45 * 60 * 1000L   // the spec's reuse window
 
-    private var cachedAt = 0L
-    private var cachedKey = ""
-    private var cached: Forecast? = null
+    /**
+     * How old a forecast may be and still be worth showing when a refresh
+     * comes back with nothing. The same six hours as `MAX_STALE_MS` in
+     * web/app.js, deliberately: one policy, that a recent answer beats no
+     * answer, and the two constants should be read together.
+     */
+    internal const val MAX_STALE_MS = 6 * 60 * 60 * 1000L
 
-    fun fetch(lat: Double, lon: Double): Forecast? {
+    internal data class Cache(val key: String, val at: Long, val forecast: Forecast?)
+
+    private var cache = Cache("", 0L, null)
+
+    /** The cached forecast, if it is for this place and inside `withinMs`. */
+    internal fun reusable(c: Cache, key: String, nowMs: Long, withinMs: Long): Forecast? =
+        c.forecast?.takeIf { c.key == key && nowMs - c.at < withinMs }
+
+    fun fetch(lat: Double, lon: Double): Forecast? =
+        fetch(lat, lon, System.currentTimeMillis()) { la, lo ->
+            Triple(
+                body(openMeteoUrl(la, lo)),
+                body(metUrl(la, lo), USER_AGENT),
+                body(smhiUrl(la, lo))
+            )
+        }
+
+    /**
+     * The real work, with the clock and the network passed in so a test can
+     * drive the cache and the failure paths without waiting or dialling out.
+     */
+    internal fun fetch(
+        lat: Double,
+        lon: Double,
+        nowMs: Long,
+        /** The three response bodies, in the order blend.js wants them. */
+        get: (Double, Double) -> Triple<String?, String?, String?>
+    ): Forecast? {
         val key = "%.3f,%.3f".format(lat, lon)
+        val c = cache
         // Three services per background check is a lot. A check that lands
         // early, or a widget redraw off-schedule, reuses what we have.
-        if (cached != null && cachedKey == key &&
-            System.currentTimeMillis() - cachedAt < CACHE_MS
-        ) return cached
+        reusable(c, key, nowMs, CACHE_MS)?.let { return it }
 
-        val om = body(openMeteoUrl(lat, lon))
-        val met = body(metUrl(lat, lon), USER_AGENT)
-        val smhi = body(smhiUrl(lat, lon))
-        if (om == null && met == null && smhi == null) return null
+        // Whatever goes wrong from here — nothing answered, a 200 carrying a
+        // captive portal's HTML, a payload short a field — the answer is the
+        // forecast we already had, if it is recent enough to still mean
+        // something. Returning null instead loses the widget an update and
+        // costs CheckWorker its retry.
+        fun fallback() = reusable(c, key, nowMs, MAX_STALE_MS)
 
-        val blended = Scoring.blend(om, met, smhi) ?: return null
+        val (om, met, smhi) = try {
+            get(lat, lon)
+        } catch (_: Exception) {
+            return fallback()
+        }
+        if (om == null && met == null && smhi == null) return fallback()
+
+        // blend.js is written not to throw, but this object's contract is
+        // "null on any failure" and it has to hold whatever the JS does:
+        // Scoring.call has no try of its own, so an exception here would
+        // travel all the way out of CheckWorker.doWork.
+        val blended = try {
+            Scoring.blend(om, met, smhi)
+        } catch (_: Exception) {
+            null
+        } ?: return fallback()
+
         val parsed = try {
             parseBlended(JSONObject(blended))
         } catch (_: Exception) {
             null
-        } ?: return null
+        } ?: return fallback()
 
-        cached = parsed
-        cachedAt = System.currentTimeMillis()
-        cachedKey = key
+        cache = Cache(key, nowMs, parsed)
         return parsed
+    }
+
+    /** Drops the cache. Tests only — nothing in the app needs it. */
+    internal fun forget() {
+        cache = Cache("", 0L, null)
     }
 
     private fun openMeteoUrl(lat: Double, lon: Double) =
