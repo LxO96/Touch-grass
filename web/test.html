@@ -19,6 +19,7 @@ window.addEventListener('error', (e) => {
 });
 </script>
 <script src="scoring.js"></script>
+<script src="blend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script>
@@ -899,6 +900,32 @@ check('it says something in Swedish too',
 
 if (REAL_LASTOUT === null) localStorage.removeItem('touchgrass.lastout');
 else localStorage.setItem('touchgrass.lastout', REAL_LASTOUT);
+
+/* ================= blending sources ================= */
+
+check('all three sources carry their stated weights', (() => {
+  const w = tgWeigh(['met', 'smhi', 'om']);
+  return w.met === 0.5 && w.smhi === 0.25 && w.om === 0.25;
+})(), true);
+
+check('a missing source has its weight shared out proportionally', (() => {
+  const w = tgWeigh(['met', 'om']);
+  return Math.abs(w.met - 2 / 3) < 1e-9 && Math.abs(w.om - 1 / 3) < 1e-9;
+})(), true);
+
+check('weights always sum to one', (() => {
+  const sets = [['met'], ['smhi'], ['om'], ['met', 'smhi'],
+                ['smhi', 'om'], ['met', 'smhi', 'om']];
+  return sets.every((s) => {
+    const w = tgWeigh(s);
+    const total = Object.keys(w).reduce((t, k) => t + w[k], 0);
+    return Math.abs(total - 1) < 1e-9;
+  });
+})(), true);
+
+check('one source on its own carries all the weight', tgWeigh(['om']).om, 1);
+
+check('no sources yields no weights', Object.keys(tgWeigh([])).length, 0);
 
 /* ================= report ================= */
 
