@@ -979,6 +979,48 @@ check('blended hours come back in time order', (() => {
 
 check('an empty blend is empty, not a crash', tgBlend({}).length, 0);
 
+check('a code carried by more weight beats one carried by less', (() => {
+  // met 0.5 clear; smhi 0.25 + om 0.25 overcast. Tie on 0.5 each,
+  // broken by the heaviest single source behind a code: met.
+  const out = tgBlend({
+    met:  [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 3 })]
+  });
+  return out[0].code;
+})(), 0);
+
+check('two agreeing sources settle it between themselves', (() => {
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 61 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 61 })]
+  });
+  return out[0].code;
+})(), 61);
+
+check('a lone source supplies its own code',
+  tgBlend({ smhi: [hr('2026-09-08T21:00:00Z', { code: 45 })] })[0].code, 45);
+
+// The spec decision, pinned so it cannot change by accident:
+// there is no safety override on the vote.
+check('an outvoted thunderstorm does not survive the vote', (() => {
+  const out = tgBlend({
+    met:  [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  });
+  return out[0].code;
+})(), 0);
+
+check('a thunderstorm with the weight behind it does survive', (() => {
+  const out = tgBlend({
+    met:  [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 3 })]
+  });
+  return out[0].code;
+})(), 95);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

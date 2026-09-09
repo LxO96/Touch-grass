@@ -85,11 +85,36 @@ function tgBlend(bySource) {
   return out;
 }
 
-/* Replaced properly in Task 3. */
+/* Codes cannot be averaged — the mean of fog and thunder is nothing.
+   So they vote, weighted. A tie goes to the heaviest single source
+   behind a code, which keeps the outcome independent of key order.
+
+   Deliberately no safety override: a thunderstorm carried by a
+   minority of the weight loses, and tgIsRisky therefore never sees
+   it. Decided in the design doc; this comment is the reminder, and
+   the test above is the lock. */
 function tgVoteCode(at, w) {
-  var k;
+  var tally = {};
+  var heaviest = {};
+  var k, code;
+
   for (k in at) {
-    if (at.hasOwnProperty(k)) return at[k].code;
+    if (!at.hasOwnProperty(k)) continue;
+    code = at[k].code;
+    if (typeof code !== 'number') continue;
+    tally[code] = (tally[code] || 0) + w[k];
+    if (!heaviest[code] || w[k] > heaviest[code]) heaviest[code] = w[k];
   }
-  return 0;
+
+  var best = null;
+  for (k in tally) {
+    if (!tally.hasOwnProperty(k)) continue;
+    code = parseInt(k, 10);
+    if (best === null ||
+        tally[code] > tally[best] ||
+        (tally[code] === tally[best] && heaviest[code] > heaviest[best])) {
+      best = code;
+    }
+  }
+  return best === null ? 0 : best;
 }
