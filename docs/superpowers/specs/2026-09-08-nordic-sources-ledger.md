@@ -54,7 +54,8 @@ Open-Meteo's `current` unblended for display only, which would then disagree
 with the score.
 
 Ruling 2: the fixture duplication between `web/fixtures.js` and
-`web/fixtures-om.json` / `web/fixtures-smhi.json` stands. A browser page cannot
+`web/fixtures-om.json` / `web/fixtures-met.json` / `web/fixtures-smhi.json`
+stands. A browser page cannot
 read local JSON without a server (the project ships as static files opened
 directly), and the Kotlin test cannot parse a JS file. Each copy must carry a
 comment naming the other so drift is visible. Cost if wrong: two copies of a
