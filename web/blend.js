@@ -129,3 +129,41 @@ function tgApparent(t, rh, ws) {
   var e = (hum / 100) * 6.105 * Math.exp((17.27 * temp) / (237.7 + temp));
   return temp + 0.33 * e - 0.70 * wind - 4.00;
 }
+
+/* SMHI's own 1–27 scale onto the WMO codes the rest of the app
+   speaks. WMO has no sleet, so sleet joins the snow family. */
+var TG_SMHI_WMO = {
+  1: 0, 2: 1, 3: 2, 4: 2, 5: 3, 6: 3,      // clear -> overcast
+  7: 45,                                    // fog
+  8: 80, 9: 81, 10: 82,                     // rain showers
+  11: 95,                                   // thunderstorm
+  12: 85, 13: 85, 14: 86,                   // sleet showers
+  15: 85, 16: 85, 17: 86,                   // snow showers
+  18: 61, 19: 63, 20: 65,                   // rain
+  21: 95,                                   // thunder
+  22: 71, 23: 73, 24: 75,                   // sleet
+  25: 71, 26: 73, 27: 75                    // snow
+};
+
+function tgNormaliseSmhi(d) {
+  var out = [];
+  if (!d || !d.timeSeries || !d.timeSeries.length) return out;
+  var i;
+  for (i = 0; i < d.timeSeries.length; i++) {
+    var t = d.timeSeries[i];
+    var v = t && t.data;
+    if (!v) continue;
+    var temp = tgNum(v.air_temperature, 16);
+    var windMs = tgNum(v.wind_speed, 0);
+    out.push({
+      time: t.time,
+      temp: temp,
+      feels: tgApparent(temp, v.relative_humidity, windMs),
+      pop: tgNum(v.probability_of_precipitation, 0),
+      precip: tgNum(v.precipitation_amount_mean, 0),
+      wind: windMs * 3.6,
+      code: TG_SMHI_WMO[v.symbol_code] === undefined ? 3 : TG_SMHI_WMO[v.symbol_code]
+    });
+  }
+  return out;
+}

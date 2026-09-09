@@ -20,6 +20,7 @@ window.addEventListener('error', (e) => {
 </script>
 <script src="scoring.js"></script>
 <script src="blend.js"></script>
+<script src="fixtures.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script>
@@ -1050,6 +1051,37 @@ check('humidity makes a warm day feel hotter',
 
 check('a missing humidity does not produce nonsense',
   isFinite(tgApparent(16, null, 2)), true);
+
+/* ================= Task 5: SMHI ================= */
+
+check('SMHI light rain is WMO light rain', TG_SMHI_WMO[18], 61);
+check('SMHI clear sky is WMO clear', TG_SMHI_WMO[1], 0);
+check('SMHI overcast is WMO overcast', TG_SMHI_WMO[6], 3);
+check('SMHI thunderstorm is WMO thunderstorm', TG_SMHI_WMO[11], 95);
+check('SMHI has all 27 symbols mapped', Object.keys(TG_SMHI_WMO).length, 27);
+
+check('every SMHI symbol maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return Object.keys(TG_SMHI_WMO).every((k) => typeof sky[TG_SMHI_WMO[k]] === 'string');
+})(), true);
+
+check('the SMHI fixture normalises to three hours',
+  tgNormaliseSmhi(FIXTURE_SMHI).length, 3);
+
+check('SMHI wind is converted to km/h',
+  Math.round(tgNormaliseSmhi(FIXTURE_SMHI)[0].wind * 100) / 100, 8.64);
+
+check('SMHI gets a computed feels-like',
+  Math.round(tgNormaliseSmhi(FIXTURE_SMHI)[0].feels * 10) / 10, 15.7);
+
+check('SMHI rain probability carries through',
+  tgNormaliseSmhi(FIXTURE_SMHI)[0].pop, 83);
+
+check('SMHI symbol 18 normalises to WMO 61',
+  tgNormaliseSmhi(FIXTURE_SMHI)[0].code, 61);
+
+check('a broken SMHI payload normalises to nothing, not a throw',
+  tgNormaliseSmhi({ nonsense: true }).length, 0);
 
 /* ================= report ================= */
 
