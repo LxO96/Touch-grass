@@ -141,7 +141,25 @@ en: {
     noIdea: 'NO IDEA, SORRY',
     noIdeaSub: 'Try searching for a town below — that always works.',
     noGeo: 'This browser has no location built in.',
-    geoBlocked: "Couldn't get your location — it may be blocked, or you're opening this straight off disk.",
+    geoDenied: "Couldn't get your location — it may be blocked, or you're opening this straight off disk.",
+    geoNoFix: "Couldn't get a fix on where you are. Indoors, or the signal is thin.",
+
+    // What each penalty in an hour's breakdown is called.
+    tapAnHour: 'Tap an hour to see why.',
+    startedAt: 'Started at',
+    aboveBar: (bar) => `Clears your bar of ${bar}.`,
+    belowBar: (bar) => `Short of your bar of ${bar}.`,
+    notTunable: 'Safety — no dial softens this one.',
+    flooredAt: 'It stops at 0; the weather had more to take.',
+    factors: {
+      rain: 'Rain',
+      cold: 'Cold',
+      heat: 'Heat',
+      wind: 'Wind',
+      dark: 'Dark',
+      night: 'The small hours',
+      code: 'The weather itself'
+    },
     footer: 'go outside',
 
     // trends
@@ -255,8 +273,10 @@ en: {
     sourcePlace: 'Town search',
     openMeteo: 'Open-Meteo',
     sourcesBlurb: 'Free, open weather data. No API key, no account, and your coordinates are sent to nobody else.',
-    sourceLicence: 'Data licensed CC BY 4.0.',
+    sourceLicence: 'MET Norway: NLOD / CC BY 4.0. SMHI: CC BY 4.0. Open-Meteo: CC BY 4.0.',
     updated: (t) => `Fetched ${t}.`,
+    blendedFrom: 'Blended from',
+    sourceWeight: (name, pct) => `${name} ${pct}%`,
 
     // data
     dataSummary: (days, trips) => `${days} days logged, ${trips} trips in all.`,
@@ -429,7 +449,24 @@ sv: {
     noIdea: 'INGEN ANING, TYVÄRR',
     noIdeaSub: 'Prova att söka efter en ort nedan — det funkar alltid.',
     noGeo: 'Den här webbläsaren har ingen platstjänst.',
-    geoBlocked: 'Kunde inte hämta din plats — den kan vara blockerad, eller så öppnade du filen direkt från disk.',
+    geoDenied: 'Kunde inte hämta din plats — den kan vara blockerad, eller så öppnade du filen direkt från disk.',
+    geoNoFix: 'Fick ingen fix på var du är. Inomhus, eller så är signalen tunn.',
+
+    tapAnHour: 'Tryck på en timme för att se varför.',
+    startedAt: 'Började på',
+    aboveBar: (bar) => `Klarar din gräns på ${bar}.`,
+    belowBar: (bar) => `Under din gräns på ${bar}.`,
+    notTunable: 'Säkerhet — ingen ratt mjukar upp den här.',
+    flooredAt: 'Det stannar på 0; vädret hade mer att ta.',
+    factors: {
+      rain: 'Regn',
+      cold: 'Kyla',
+      heat: 'Värme',
+      wind: 'Vind',
+      dark: 'Mörker',
+      night: 'Småtimmarna',
+      code: 'Själva vädret'
+    },
     footer: 'gå ut',
 
     restOfToday: 'resten av dagen',
@@ -539,8 +576,10 @@ sv: {
     sourcePlace: 'Ortsökning',
     openMeteo: 'Open-Meteo',
     sourcesBlurb: 'Fria, öppna väderdata. Ingen API-nyckel, inget konto, och dina koordinater skickas inte till någon annan.',
-    sourceLicence: 'Data licensierade under CC BY 4.0.',
+    sourceLicence: 'MET Norway: NLOD / CC BY 4.0. SMHI: CC BY 4.0. Open-Meteo: CC BY 4.0.',
     updated: (t) => `Hämtat ${t}.`,
+    blendedFrom: 'Sammanvägt från',
+    sourceWeight: (name, pct) => `${name} ${pct} %`,
 
     dataSummary: (days, trips) => `${days} dagar noterade, ${trips} turer totalt.`,
     dataSummaryEmpty: 'Inget noterat än.',

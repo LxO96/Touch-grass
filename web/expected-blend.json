@@ -1,0 +1,209 @@
+{
+  "allThree": {
+    "now": {
+      "time": "2026-09-08T21:00:00Z",
+      "hour": 23,
+      "feels": 15.565521185465606,
+      "temp": 15.775,
+      "pop": 40.75,
+      "precip": 0.125,
+      "wind": 9.45,
+      "code": 2,
+      "isDay": false,
+      "hoursFromNow": 0,
+      "contributors": [
+        "met",
+        "smhi",
+        "om"
+      ]
+    },
+    "ahead": [
+      {
+        "time": "2026-09-08T22:00:00Z",
+        "hour": 0,
+        "feels": 14.74061079622498,
+        "temp": 15.2,
+        "pop": 45.75,
+        "precip": 0.225,
+        "wind": 9.46,
+        "code": 2,
+        "isDay": false,
+        "hoursFromNow": 1,
+        "contributors": [
+          "met",
+          "smhi",
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-08T23:00:00Z",
+        "hour": 1,
+        "feels": 14.550885129837372,
+        "temp": 15.15,
+        "pop": 84,
+        "precip": 0.4,
+        "wind": 9.18,
+        "code": 61,
+        "isDay": false,
+        "hoursFromNow": 2,
+        "contributors": [
+          "smhi",
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T00:00:00Z",
+        "hour": 2,
+        "feels": 14.7,
+        "temp": 15.1,
+        "pop": 75,
+        "precip": 0.3,
+        "wind": 8.6,
+        "code": 61,
+        "isDay": false,
+        "hoursFromNow": 3,
+        "contributors": [
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T01:00:00Z",
+        "hour": 3,
+        "feels": 14.4,
+        "temp": 14.8,
+        "pop": 60,
+        "precip": 0.1,
+        "wind": 8.2,
+        "code": 3,
+        "isDay": false,
+        "hoursFromNow": 4,
+        "contributors": [
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T02:00:00Z",
+        "hour": 4,
+        "feels": 14.2,
+        "temp": 14.6,
+        "pop": 45,
+        "precip": 0,
+        "wind": 7.9,
+        "code": 3,
+        "isDay": false,
+        "hoursFromNow": 5,
+        "contributors": [
+          "om"
+        ]
+      }
+    ],
+    "sunsetMin": 1181,
+    "sources": [
+      "met",
+      "smhi",
+      "om"
+    ]
+  },
+  "metMissing": {
+    "now": {
+      "time": "2026-09-08T21:00:00Z",
+      "hour": 23,
+      "feels": 15.831042370931211,
+      "temp": 16.25,
+      "pop": 81.5,
+      "precip": 0.25,
+      "wind": 8.82,
+      "code": 61,
+      "isDay": false,
+      "hoursFromNow": 0,
+      "contributors": [
+        "smhi",
+        "om"
+      ]
+    },
+    "ahead": [
+      {
+        "time": "2026-09-08T22:00:00Z",
+        "hour": 0,
+        "feels": 15.181221592449958,
+        "temp": 15.7,
+        "pop": 91.5,
+        "precip": 0.45,
+        "wind": 9.56,
+        "code": 63,
+        "isDay": false,
+        "hoursFromNow": 1,
+        "contributors": [
+          "smhi",
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-08T23:00:00Z",
+        "hour": 1,
+        "feels": 14.550885129837372,
+        "temp": 15.15,
+        "pop": 84,
+        "precip": 0.4,
+        "wind": 9.18,
+        "code": 61,
+        "isDay": false,
+        "hoursFromNow": 2,
+        "contributors": [
+          "smhi",
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T00:00:00Z",
+        "hour": 2,
+        "feels": 14.7,
+        "temp": 15.1,
+        "pop": 75,
+        "precip": 0.3,
+        "wind": 8.6,
+        "code": 61,
+        "isDay": false,
+        "hoursFromNow": 3,
+        "contributors": [
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T01:00:00Z",
+        "hour": 3,
+        "feels": 14.4,
+        "temp": 14.8,
+        "pop": 60,
+        "precip": 0.1,
+        "wind": 8.2,
+        "code": 3,
+        "isDay": false,
+        "hoursFromNow": 4,
+        "contributors": [
+          "om"
+        ]
+      },
+      {
+        "time": "2026-09-09T02:00:00Z",
+        "hour": 4,
+        "feels": 14.2,
+        "temp": 14.6,
+        "pop": 45,
+        "precip": 0,
+        "wind": 7.9,
+        "code": 3,
+        "isDay": false,
+        "hoursFromNow": 5,
+        "contributors": [
+          "om"
+        ]
+      }
+    ],
+    "sunsetMin": 1181,
+    "sources": [
+      "smhi",
+      "om"
+    ]
+  }
+}

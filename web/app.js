@@ -3,7 +3,8 @@
    Needs core.js loaded first.
    ========================================================== */
 
-const STATE = { place: null, data: null, stale: null, fetchedAt: null };
+const STATE = { place: null, data: null, stale: null, fetchedAt: null,
+                loading: false };
 
 /* ----------------------------------------------------------
    A phone loses signal in ways a laptop doesn't, and opening
@@ -29,9 +30,7 @@ function loadCachedForecast(place) {
     if (!c || !c.data || !c.data.now) return null;
     if (Date.now() - c.at > MAX_STALE_MS) return null;
     // Don't answer for Gothenburg using yesterday's Lisbon.
-    if (place && c.place &&
-        (Math.abs(c.place.lat - place.lat) > 0.4 ||
-         Math.abs(c.place.lon - place.lon) > 0.4)) return null;
+    if (place && c.place && !nearPlace(c.place, place.lat, place.lon)) return null;
     return c;
   } catch { return null; }
 }
@@ -43,64 +42,50 @@ const clockTime = (ms) => new Date(ms)
    DATA
    ========================================================== */
 
-async function getWeather(lat, lon) {
-  const url = 'https://api.open-meteo.com/v1/forecast'
-    + `?latitude=${lat}&longitude=${lon}`
-    + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
-    + '&hourly=apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
-    + '&daily=sunset'
-    + '&forecast_days=2&timezone=auto';
+const OM_URL = (lat, lon) => 'https://api.open-meteo.com/v1/forecast'
+  + `?latitude=${lat}&longitude=${lon}`
+  + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
+  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
+  + '&daily=sunset&forecast_days=2&timezone=auto';
 
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`Weather service said ${res.status}`);
-  const d = await res.json();
+const MET_URL = (lat, lon) =>
+  `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${lat}&lon=${lon}`;
 
-  const now = {
-    temp:   d.current.temperature_2m,
-    feels:  d.current.apparent_temperature,
-    precip: d.current.precipitation,
-    code:   d.current.weather_code,
-    wind:   d.current.wind_speed_10m,
-    isDay:  d.current.is_day === 1,
-    // Local hour at the location, not in the visitor's own timezone.
-    hour:   parseInt(d.current.time.slice(11, 13), 10),
-    pop:    0
-  };
+const SMHI_URL = (lat, lon) =>
+  'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1'
+  + `/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
 
-  // Line the hourly array up with the current local hour.
-  const H = d.hourly;
-  const stamp = d.current.time.slice(0, 13);            // "YYYY-MM-DDTHH"
-  let i = H.time.findIndex((t) => t.slice(0, 13) === stamp);
-  if (i < 0) i = 0;
-
-  // Give "now" the current hour's rain probability — the API
-  // doesn't hand one out for the current conditions.
-  now.pop = H.precipitation_probability[i] ?? 0;
-
-  const ahead = [];
-  for (let k = 1; k <= 12 && i + k < H.time.length; k++) {
-    const j = i + k;
-    // Read the hour straight off the string: these timestamps are already
-    // in the location's timezone, and Date() would drag in the visitor's.
-    const hr = parseInt(H.time[j].slice(11, 13), 10);
-    ahead.push({
-      time:  H.time[j],
-      hour:  hr,
-      label: T().hourLabel(hr),
-      feels: H.apparent_temperature[j],
-      pop:   H.precipitation_probability[j] ?? 0,
-      precip: H.precipitation[j] ?? 0,
-      code:  H.weather_code[j],
-      wind:  H.wind_speed_10m[j],
-      isDay: H.is_day[j] === 1,
-      hoursFromNow: k
-    });
+/* One source failing must not cost us the other two, so each is
+   allowed to come back null. SMHI answers only for the Nordics and
+   404s elsewhere, which is not an error worth reporting — it is the
+   blend degrading exactly as designed. */
+async function fetchOrNull(url) {
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 10000);
+  try {
+    const res = await fetch(url, { signal: ctl.signal });
+    if (!res.ok) return null;
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
   }
+}
 
-  const sunsetStr = d.daily && d.daily.sunset ? d.daily.sunset[0] : null;
-  const sunsetMin = sunsetStr ? clockToMinutes(sunsetStr.slice(11)) : null;
+async function getWeather(lat, lon) {
+  const [om, met, smhi] = await Promise.all([
+    fetchOrNull(OM_URL(lat, lon)),
+    fetchOrNull(MET_URL(lat, lon)),
+    fetchOrNull(SMHI_URL(lat, lon))
+  ]);
 
-  return { now, ahead, sunsetMin };
+  const f = tgForecast({ om, met, smhi });
+  if (!f) throw new Error('No weather service answered');
+
+  // hourLabel is the page's business, not the blend's.
+  for (const h of f.ahead) h.label = T().hourLabel(h.hour);
+  return f;
 }
 
 // Scores depend on settings, so they're recomputed on every render
@@ -173,6 +158,26 @@ function renderVerdict() {
   if (credit) {
     credit.textContent = T().ui.updated(clockTime(STATE.stale || STATE.fetchedAt || Date.now()));
   }
+
+  const blend = $('blend-sources');
+  if (blend) {
+    // Heaviest first. data.sources arrives in whatever order the hours
+    // happened to name the services, which read as "Open-Meteo 25%, MET
+    // Norway 50%, SMHI 25%" — the least important source announced first.
+    const list = tgCreditOrder(data.sources || []);
+    const w = tgWeigh(data.sources || []);
+    blend.textContent = list.length
+      ? `${T().ui.blendedFrom} ` + list
+          .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
+          .join(', ')
+      : '';
+  }
+}
+
+/* The blend's own name for a source, from the one credits list. */
+function creditName(key) {
+  for (const c of TG_CREDITS) if (c.key === key) return c.name;
+  return key;
 }
 
 /* The page has just worked out the verdict; hand it to the widget so it
@@ -222,24 +227,39 @@ function renderToday(visits) {
   if (since) since.textContent = lastOutText(lastOut());
 }
 
+/* Which hour's breakdown is open, by its index in the chart, or null.
+   Kept across re-renders so changing a dial in another tab doesn't
+   slam the panel shut mid-read. */
+let openHour = null;
+
 function renderChart(data, s) {
   const chart = $('chart');
   chart.innerHTML = '';
   const cols = [{ label: T().ui.notYet === 'Not yet' ? 'now' : 'nu',
-                  score: scoreHour(data.now, s), isNow: true }]
+                  score: scoreHour(data.now, s), isNow: true, hour: data.now }]
     .concat(data.ahead.slice(0, 11).map((h) => ({
-      label: String(h.hour).padStart(2, '0'), score: h.score, isNow: false
+      label: String(h.hour).padStart(2, '0'), score: h.score, isNow: false, hour: h
     })));
 
-  for (const c of cols) {
+  cols.forEach((c, i) => {
     const col = document.createElement('div');
     col.className = 'bar-col';
 
-    const bar = document.createElement('div');
+    // A button, not a div: the breakdown has to be reachable by
+    // keyboard and readable to a screen reader, not just tappable.
+    const bar = document.createElement('button');
+    bar.type = 'button';
     bar.className = 'bar ' + (c.score >= s.bar ? 'good' : c.score >= 35 ? 'meh' : 'bad')
-                  + (c.isNow ? ' now' : '');
+                  + (c.isNow ? ' now' : '') + (i === openHour ? ' open' : '');
     bar.style.height = Math.max(4, c.score) + '%';
     bar.title = `${c.label}: ${c.score}/100`;
+    bar.setAttribute('aria-expanded', String(i === openHour));
+    bar.setAttribute('aria-label', `${c.label}: ${c.score}/100`);
+    bar.addEventListener('click', () => {
+      openHour = (openHour === i) ? null : i;
+      renderChart(data, s);
+      renderWhy(cols, s);
+    });
 
     const lbl = document.createElement('span');
     lbl.className = 'bar-hr';
@@ -247,6 +267,74 @@ function renderChart(data, s) {
 
     col.append(bar, lbl);
     chart.append(col);
+  });
+
+  renderWhy(cols, s);
+}
+
+/* The panel under the chart: where an hour's 100 points went. */
+function renderWhy(cols, s) {
+  const box = $('why');
+  if (!box) return;
+
+  const col = openHour === null ? null : cols[openHour];
+  if (!col) { box.hidden = true; box.innerHTML = ''; return; }
+
+  const L = T().ui;
+  const e = tgExplainHour(col.hour, s);
+  box.hidden = false;
+  box.innerHTML = '';
+
+  const head = document.createElement('h3');
+  head.className = 'why-h';
+  head.textContent = `${col.label} — ${e.total}/100`;
+  box.append(head);
+
+  const rows = document.createElement('div');
+  rows.className = 'why-rows';
+
+  const row = (name, fact, amount, cls) => {
+    const r = document.createElement('div');
+    r.className = 'why-row' + (cls ? ' ' + cls : '');
+    const n = document.createElement('span');
+    n.className = 'why-name';
+    n.textContent = name;
+    const f = document.createElement('span');
+    f.className = 'why-fact';
+    f.textContent = fact;
+    const a = document.createElement('span');
+    a.className = 'why-amt';
+    // A real minus sign, not a hyphen: this is a sum, and it is read aloud.
+    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+    r.append(n, f, a);
+    return r;
+  };
+
+  rows.append(row(L.startedAt, '', e.start));
+  for (const p of e.parts) {
+    rows.append(row(L.factors[p.key] || p.key, factorFact(p.key, col.hour),
+                    p.amount, p.fixed ? 'fixed' : ''));
+  }
+  rows.append(row('', '', e.total, 'total'));
+  box.append(rows);
+
+  const note = document.createElement('p');
+  note.className = 'why-note';
+  note.textContent = e.total >= s.bar ? L.aboveBar(s.bar) : L.belowBar(s.bar);
+  box.append(note);
+
+  if (e.parts.some((p) => p.fixed)) {
+    const safety = document.createElement('p');
+    safety.className = 'why-note fixed';
+    safety.textContent = L.notTunable;
+    box.append(safety);
+  }
+
+  if (e.floored) {
+    const floored = document.createElement('p');
+    floored.className = 'why-note';
+    floored.textContent = L.flooredAt;
+    box.append(floored);
   }
 }
 
@@ -303,13 +391,14 @@ function fail(msg) {
   $('verdict').classList.remove('go', 'wait', 'anyways', 'stayin');
   $('banner-tag').textContent = 'HMM';
   $('verdict-line').textContent = T().ui.noIdea;
-  $('verdict-sub').textContent = msg + ' Try searching for a town below — that always works.';
+  $('verdict-sub').textContent = msg + ' ' + T().ui.noIdeaSub;
   $('meter-fill').style.width = '0%';
   $('meter-label').textContent = 'OUTSIDE-ABILITY —';
 }
 
 async function load(place) {
   STATE.place = place;
+  STATE.loading = true;
   $('place').textContent = place.label;
   try {
     STATE.data = await getWeather(place.lat, place.lon);
@@ -328,14 +417,32 @@ async function load(place) {
     } else {
       fail(e.message + '.');
     }
+  } finally {
+    STATE.loading = false;
   }
 }
 
-function askGeo() {
+/* `force` is the difference between the page quietly refining the place it
+   already has on open, and you pressing the locate button — pressing it
+   should always go and look, even if nothing has moved. */
+function askGeo(force) {
   if (!navigator.geolocation) {
     if (!STATE.data) fail(T().ui.noGeo);
     return;
   }
+  tryGeo(0, undefined, force);
+}
+
+/* Attempt n of nextGeoAttempt's plan. The card keeps saying "Locating…"
+   between attempts: a failure banner at eight seconds, while the GPS is
+   still being asked, would be a lie we then have to take back. */
+function tryGeo(n, prevCode, force) {
+  const opts = nextGeoAttempt(n, prevCode);
+  if (!opts) {
+    if (!STATE.data) fail(geoFailMessage(prevCode));
+    return;
+  }
+
   navigator.geolocation.getCurrentPosition(
     (pos) => {
       const { latitude: lat, longitude: lon } = pos.coords;
@@ -344,19 +451,24 @@ function askGeo() {
       // Only names picked from the search count — an auto-generated
       // coordinate label is not worth preserving.
       const saved = loadPlace();
-      const keepName = saved && saved.named
-        && Math.abs(saved.lat - lat) < 0.4
-        && Math.abs(saved.lon - lon) < 0.4;
+      const keepName = saved && saved.named && nearPlace(saved, lat, lon);
+
+      // The fix landed in the box the page is already showing, and that
+      // answer is still good: move the pin onto the real coordinates and
+      // spend nothing. See geoNeedsReload for why this is worth doing.
+      if (!force && !geoNeedsReload(STATE, lat, lon, Date.now())) {
+        STATE.place = { lat, lon,
+                        label: STATE.place.label, named: !!STATE.place.named };
+        savePlace(STATE.place);
+        return;
+      }
+
       load(keepName
         ? { lat, lon, label: saved.label, named: true }
         : { lat, lon, label: coordLabel(lat, lon) });
     },
-    () => {
-      if (!STATE.data) {
-        fail(T().ui.geoBlocked);
-      }
-    },
-    { timeout: 8000, maximumAge: 600000 }
+    (err) => tryGeo(n + 1, err.code, force),
+    opts
   );
 }
 
@@ -376,7 +488,7 @@ $('btn-undo').addEventListener('click', () => {
   renderToday(visitsToday());
 });
 
-$('btn-geo').addEventListener('click', askGeo);
+$('btn-geo').addEventListener('click', () => askGeo(true));
 
 $('search-form').addEventListener('submit', async (e) => {
   e.preventDefault();

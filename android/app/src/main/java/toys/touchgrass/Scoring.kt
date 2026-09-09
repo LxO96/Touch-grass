@@ -40,10 +40,23 @@ object Scoring {
         val label: String = ""
     )
 
-    /** Reads scoring.js. Supplied by the app; swapped for a file in tests. */
+    /**
+     * Reads the shared JS: scoring.js and blend.js, concatenated,
+     * scoring.js first (blend.js depends on tgNum). Supplied by the app;
+     * swapped for the web/ files directly in tests.
+     */
     fun interface Source {
         fun read(): String
     }
+
+    /**
+     * The shared JS files, in evaluation order, separated so they cannot
+     * run into each other. Plain concatenation worked only because
+     * scoring.js happens to end in a newline; the day one of these files
+     * ends in a `//` comment it would swallow the next file's first line,
+     * silently, with the error surfacing somewhere else entirely.
+     */
+    fun join(vararg parts: String): String = parts.joinToString("\n;\n")
 
     private var scope: ScriptableObject? = null
     private var source: Source? = null
@@ -109,6 +122,14 @@ object Scoring {
     fun isDeepNight(hour: Int): Boolean = call(
         "tgIsDeepNight", arrayOf<Any?>(hour)
     ) { RhinoContext.toBoolean(it) }
+
+    /** The blend, evaluated by the web app's own blend.js. */
+    fun blend(omJson: String?, metJson: String?, smhiJson: String?): String? =
+        call(
+            "tgForecastJson",
+            arrayOf<Any?>(omJson, metJson, smhiJson)
+        ) { RhinoContext.toString(it) }
+            .takeIf { it != "null" && it.isNotBlank() }
 
     /** One outcome, decided by the same tgDecide() the page uses. */
     data class Verdict(

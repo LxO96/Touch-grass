@@ -164,6 +164,16 @@ function applyStatic(root) {
   document.documentElement.lang = L.code;
 }
 
+/* A one-line note under the search box — "Looking…", "Nothing by that
+   name". Lives here rather than with the calendar because both pages
+   need it and only this file is loaded by both. */
+function hintPara(text) {
+  const p = document.createElement('p');
+  p.className = 'hint';
+  p.textContent = text;
+  return p;
+}
+
 /* ==========================================================
    THE LOG — one number per day, kept in localStorage.
 
@@ -499,6 +509,103 @@ function syncToAndroid() {
       place: place ? { lat: place.lat, lon: place.lon, label: place.label } : null
     }));
   } catch { /* the app still works without notifications */ }
+}
+
+/* ==========================================================
+   WHY AN HOUR SCORES WHAT IT DOES
+
+   tgExplainHour in scoring.js itemises the penalties as keys and
+   numbers. This puts the reading behind each one into words — the
+   53% that cost you 29 points — in your language and your units.
+   ========================================================== */
+
+function factorFact(key, h) {
+  const u = getUnits();
+  switch (key) {
+    case 'rain':
+      return T().ui.chanceOf(Math.round(tgNum(h.pop, 0)));
+    case 'cold':
+    case 'heat':
+      return fmtTemp(tgNum(h.feels, 16), u);
+    case 'wind':
+      return fmtWind(tgNum(h.wind, 0), u);
+    case 'code':
+      return skyName(h.code);
+    // Dark is dark, and 3am is 3am. Neither needs a number.
+    default:
+      return '';
+  }
+}
+
+/* ==========================================================
+   FINDING YOU
+
+   Asking for a location is two questions, not one. The cheap one —
+   "do you already know where I am?" — answers instantly when the
+   device has a recent fix, which on a phone in daily use it usually
+   does. When it doesn't, that request does not fall back to the GPS;
+   it simply times out. So the expensive question has to be asked
+   separately, and only then.
+
+   A refusal is different: it will still be a refusal in twenty
+   seconds, so it is never asked twice.
+   ========================================================== */
+
+const GEO_DENIED = 1;        // PositionError.PERMISSION_DENIED
+const GEO_UNAVAILABLE = 2;   // PositionError.POSITION_UNAVAILABLE
+const GEO_TIMEOUT = 3;       // PositionError.TIMEOUT
+
+const GEO_ATTEMPTS = [
+  // Whatever the device already knows, if it is fresh enough.
+  { timeout: 8000, maximumAge: 600000 },
+  // Nothing cached: wake the GPS and give it time to see the sky.
+  { enableHighAccuracy: true, timeout: 20000, maximumAge: 0 }
+];
+
+// The options for attempt n, or null when there is nothing left to try.
+function nextGeoAttempt(n, code) {
+  if (n > 0 && code === GEO_DENIED) return null;
+  return GEO_ATTEMPTS[n] || null;
+}
+
+function geoFailMessage(code) {
+  return code === GEO_DENIED ? T().ui.geoDenied : T().ui.geoNoFix;
+}
+
+/* Close enough that one forecast answers for both. The same box the
+   cached forecast is reused across, and the same one a chosen place name
+   survives — one number, so those three cannot drift apart. */
+const SAME_PLACE_DEG = 0.4;
+
+function nearPlace(p, lat, lon) {
+  return !!p && Math.abs(p.lat - lat) < SAME_PLACE_DEG
+             && Math.abs(p.lon - lon) < SAME_PLACE_DEG;
+}
+
+/* How long a forecast on screen stands before a fresh fix is worth
+   spending three more requests on. The 45 minutes Weather.kt reuses its
+   cache for, deliberately: the same policy on both sides. */
+const GEO_REUSE_MS = 45 * 60 * 1000;
+
+/* Whether a position fix should trigger a real reload.
+
+   Every open asks for a location on top of the remembered place it has
+   already started loading, and the first attempt accepts a ten-minute-old
+   cached fix — so on a phone in daily use it answers instantly with
+   coordinates inside the box already being loaded. Reloading there is
+   three more HTTP requests each to Open-Meteo, MET and SMHI for an answer
+   that is on its way or already on the screen, and MET Norway's terms ask
+   clients not to repeat requests they do not need.
+
+   What must still reload: a genuinely different place, a forecast old
+   enough to be worth replacing, and a stale one — that one is showing
+   only because the last fetch failed, so a fresh chance at the network is
+   exactly what it wants. */
+function geoNeedsReload(state, lat, lon, nowMs) {
+  if (!state || !nearPlace(state.place, lat, lon)) return true;
+  if (state.loading) return false;    // the same box is already on its way
+  if (!state.data || state.stale) return true;
+  return nowMs - state.fetchedAt >= GEO_REUSE_MS;
 }
 
 /* ---------- remembered place ---------- */

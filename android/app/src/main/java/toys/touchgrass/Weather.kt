@@ -3,10 +3,13 @@ package toys.touchgrass
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 /**
- * The same Open-Meteo call the page makes, from Kotlin, for the background
- * check. No extra dependency — one GET and some JSON.
+ * Three GETs — Open-Meteo, MET Norway, SMHI — handed to the web app's own
+ * blend.js as raw response bodies. Kotlin never parses a forecast payload
+ * or owns a symbol-mapping table; the blend has exactly one definition,
+ * shared with the page, evaluated through Rhino in Scoring.blend.
  */
 object Weather {
 
@@ -17,100 +20,169 @@ object Weather {
         val sunsetMinutes: Int?
     )
 
-    fun fetch(lat: Double, lon: Double): Forecast? {
-        val url = URL(
-            "https://api.open-meteo.com/v1/forecast" +
-                "?latitude=$lat&longitude=$lon" +
-                "&current=temperature_2m,apparent_temperature,precipitation," +
-                "weather_code,wind_speed_10m,is_day" +
-                "&hourly=apparent_temperature,precipitation_probability,precipitation," +
-                "weather_code,wind_speed_10m,is_day" +
-                "&daily=sunset" +
-                "&forecast_days=2&timezone=auto"
-        )
+    /** MET Norway's terms require an identifying User-Agent. */
+    private const val USER_AGENT = "TouchGrass/1.0 github.com/LxO96/Touch-grass"
 
-        val body = try {
-            (url.openConnection() as HttpURLConnection).run {
-                connectTimeout = 15_000
-                readTimeout = 15_000
-                requestMethod = "GET"
-                try {
-                    if (responseCode != 200) return null
-                    inputStream.bufferedReader().readText()
-                } finally {
-                    disconnect()
-                }
-            }
-        } catch (_: Exception) {
-            return null   // offline, DNS, timeout — the worker just tries again later
+    internal const val CACHE_MS = 45 * 60 * 1000L   // the spec's reuse window
+
+    /**
+     * How old a forecast may be and still be worth showing when a refresh
+     * comes back with nothing. The same six hours as `MAX_STALE_MS` in
+     * web/app.js, deliberately: one policy, that a recent answer beats no
+     * answer, and the two constants should be read together.
+     */
+    internal const val MAX_STALE_MS = 6 * 60 * 60 * 1000L
+
+    internal data class Cache(val key: String, val at: Long, val forecast: Forecast?)
+
+    private var cache = Cache("", 0L, null)
+
+    /** The cached forecast, if it is for this place and inside `withinMs`. */
+    internal fun reusable(c: Cache, key: String, nowMs: Long, withinMs: Long): Forecast? =
+        c.forecast?.takeIf { c.key == key && nowMs - c.at < withinMs }
+
+    fun fetch(lat: Double, lon: Double): Forecast? =
+        fetch(lat, lon, System.currentTimeMillis()) { la, lo ->
+            Triple(
+                body(openMeteoUrl(la, lo)),
+                body(metUrl(la, lo), USER_AGENT),
+                body(smhiUrl(la, lo))
+            )
         }
 
-        return try {
-            parse(JSONObject(body))
+    /**
+     * The real work, with the clock and the network passed in so a test can
+     * drive the cache and the failure paths without waiting or dialling out.
+     */
+    internal fun fetch(
+        lat: Double,
+        lon: Double,
+        nowMs: Long,
+        /** The three response bodies, in the order blend.js wants them. */
+        get: (Double, Double) -> Triple<String?, String?, String?>
+    ): Forecast? {
+        val key = cacheKey(lat, lon)
+        val c = cache
+        // Three services per background check is a lot. A check that lands
+        // early, or a widget redraw off-schedule, reuses what we have.
+        reusable(c, key, nowMs, CACHE_MS)?.let { return it }
+
+        // Whatever goes wrong from here — nothing answered, a 200 carrying a
+        // captive portal's HTML, a payload short a field — the answer is the
+        // forecast we already had, if it is recent enough to still mean
+        // something. Returning null instead loses the widget an update and
+        // costs CheckWorker its retry.
+        fun fallback() = reusable(c, key, nowMs, MAX_STALE_MS)
+
+        val (om, met, smhi) = try {
+            get(lat, lon)
+        } catch (_: Exception) {
+            return fallback()
+        }
+        if (om == null && met == null && smhi == null) return fallback()
+
+        // blend.js is written not to throw, but this object's contract is
+        // "null on any failure" and it has to hold whatever the JS does:
+        // Scoring.call has no try of its own, so an exception here would
+        // travel all the way out of CheckWorker.doWork.
+        val blended = try {
+            Scoring.blend(om, met, smhi)
         } catch (_: Exception) {
             null
-        }
+        } ?: return fallback()
+
+        val parsed = try {
+            parseBlended(JSONObject(blended))
+        } catch (_: Exception) {
+            null
+        } ?: return fallback()
+
+        cache = Cache(key, nowMs, parsed)
+        return parsed
     }
 
-    private fun parse(d: JSONObject): Forecast? {
-        val cur = d.optJSONObject("current") ?: return null
-        val h = d.optJSONObject("hourly") ?: return null
+    /** Drops the cache. Tests only — nothing in the app needs it. */
+    internal fun forget() {
+        cache = Cache("", 0L, null)
+    }
 
-        val times = h.getJSONArray("time")
-        val curTime = cur.getString("time")
-        val stamp = curTime.substring(0, 13)          // yyyy-MM-ddTHH
+    /**
+     * Which place the cached forecast is for.
+     *
+     * `Locale.US` for the same reason [smhiUrl] needs it: the default
+     * locale decides the decimal separator, and a key of `59,329,18,069`
+     * is not the key `59.329,18.069` that the next call would build if the
+     * user changed language in between. Only ever compared for equality,
+     * so nothing breaks today — but it is the identical defect, and a trap
+     * left lying in the open is one somebody eventually stands on.
+     */
+    internal fun cacheKey(lat: Double, lon: Double): String =
+        String.format(Locale.US, "%.3f,%.3f", lat, lon)
 
-        var i = 0
-        for (k in 0 until times.length()) {
-            if (times.getString(k).substring(0, 13) == stamp) { i = k; break }
+    private fun openMeteoUrl(lat: Double, lon: Double) =
+        "https://api.open-meteo.com/v1/forecast" +
+            "?latitude=$lat&longitude=$lon" +
+            "&current=temperature_2m,apparent_temperature,precipitation," +
+            "weather_code,wind_speed_10m,is_day" +
+            "&hourly=temperature_2m,apparent_temperature," +
+            "precipitation_probability,precipitation,weather_code," +
+            "wind_speed_10m,is_day" +
+            "&daily=sunset&forecast_days=2&timezone=auto"
+
+    private fun metUrl(lat: Double, lon: Double) =
+        "https://api.met.no/weatherapi/locationforecast/2.0/complete" +
+            "?lat=$lat&lon=$lon"
+
+    /**
+     * `Locale.US`, and it is not cosmetic: `String.format` without one
+     * formats through the *device's* locale, so a Swedish phone asks SMHI
+     * for `lon/18,0690` and is answered 404. The page builds this same URL
+     * with `toFixed(4)`, which never does that — which would leave the
+     * page blending three sources and the widget two, on precisely the
+     * devices SMHI was added for.
+     */
+    internal fun smhiUrl(lat: Double, lon: Double) =
+        "https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1" +
+            String.format(Locale.US, "/geotype/point/lon/%.4f/lat/%.4f/data.json", lon, lat)
+
+    private fun body(url: String, ua: String? = null): String? = try {
+        (URL(url).openConnection() as HttpURLConnection).run {
+            connectTimeout = 15_000
+            readTimeout = 15_000
+            requestMethod = "GET"
+            if (ua != null) setRequestProperty("User-Agent", ua)
+            try {
+                if (responseCode != 200) null
+                else inputStream.bufferedReader().readText()
+            } finally {
+                disconnect()
+            }
         }
+    } catch (_: Exception) {
+        null    // offline, DNS, timeout, or a 404 outside SMHI's area
+    }
 
-        // Hours come back in the location's own timezone, so read the hour
-        // straight off the string rather than through a local calendar.
-        val nowHour = curTime.substring(11, 13).toInt()
-
-        val now = Scoring.Hour(
-            hour = nowHour,
-            feels = cur.getDouble("apparent_temperature"),
-            pop = h.getJSONArray("precipitation_probability").optDouble(i, 0.0).orZero(),
-            precip = cur.getDouble("precipitation"),
-            wind = cur.getDouble("wind_speed_10m"),
-            isDay = cur.getInt("is_day") == 1,
-            code = cur.getInt("weather_code")
+    private fun parseBlended(d: JSONObject): Forecast? {
+        fun hour(o: JSONObject, k: Int) = Scoring.Hour(
+            hour = o.getInt("hour"),
+            feels = o.getDouble("feels"),
+            pop = o.optDouble("pop", 0.0),
+            precip = o.optDouble("precip", 0.0),
+            wind = o.getDouble("wind"),
+            isDay = o.getBoolean("isDay"),
+            code = o.getInt("code"),
+            hoursFromNow = k,
+            label = label(o.getInt("hour"))
         )
 
-        val ahead = ArrayList<Scoring.Hour>(12)
-        var k = 1
-        while (k <= 12 && i + k < times.length()) {
-            val j = i + k
-            val hr = times.getString(j).substring(11, 13).toInt()
-            ahead += Scoring.Hour(
-                hour = hr,
-                feels = h.getJSONArray("apparent_temperature").getDouble(j),
-                pop = h.getJSONArray("precipitation_probability").optDouble(j, 0.0).orZero(),
-                precip = h.getJSONArray("precipitation").optDouble(j, 0.0).orZero(),
-                wind = h.getJSONArray("wind_speed_10m").getDouble(j),
-                isDay = h.getJSONArray("is_day").getInt(j) == 1,
-                code = h.getJSONArray("weather_code").getInt(j),
-                hoursFromNow = k,
-                label = label(hr)
-            )
-            k++
-        }
+        val now = hour(d.optJSONObject("now") ?: return null, 0)
+        val arr = d.optJSONArray("ahead") ?: return null
+        val ahead = ArrayList<Scoring.Hour>(arr.length())
+        for (i in 0 until arr.length()) ahead += hour(arr.getJSONObject(i), i + 1)
 
-        // "2026-08-29T19:58" -> 19*60+58, in the location's own timezone.
-        val sunset = try {
-            d.optJSONObject("daily")?.optJSONArray("sunset")?.optString(0)
-                ?.takeIf { it.length >= 16 }
-                ?.let { it.substring(11, 13).toInt() * 60 + it.substring(14, 16).toInt() }
-        } catch (_: Exception) {
-            null
-        }
-
+        val sunset = if (d.isNull("sunsetMin")) null else d.getInt("sunsetMin")
         return Forecast(now, ahead, sunset)
     }
-
-    private fun Double.orZero() = if (isNaN()) 0.0 else this
 
     fun label(hr: Int) = when {
         hr == 0 -> "midnight"

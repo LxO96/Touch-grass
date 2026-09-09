@@ -1,0 +1,22 @@
+{
+  "properties": { "timeseries": [
+    { "time": "2026-09-08T20:00:00Z",
+      "data": { "instant": { "details": { "air_temperature": 15.8,
+        "apparent_air_temperature": 15.8, "wind_speed": 3.1 } },
+        "next_1_hours": { "summary": { "symbol_code": "partlycloudy_night" },
+          "details": { "precipitation_amount": 0,
+            "probability_of_precipitation": 0 } } } },
+    { "time": "2026-09-08T21:00:00Z",
+      "data": { "instant": { "details": { "air_temperature": 15.3,
+        "apparent_air_temperature": 15.3, "wind_speed": 2.8 } },
+        "next_1_hours": { "summary": { "symbol_code": "partlycloudy_night" },
+          "details": { "precipitation_amount": 0,
+            "probability_of_precipitation": 0 } } } },
+    { "time": "2026-09-08T22:00:00Z",
+      "data": { "instant": { "details": { "air_temperature": 14.7,
+        "apparent_air_temperature": 14.3, "wind_speed": 2.6 } },
+        "next_1_hours": { "summary": { "symbol_code": "partlycloudy_night" },
+          "details": { "precipitation_amount": 0,
+            "probability_of_precipitation": 0 } } } }
+  ] }
+}

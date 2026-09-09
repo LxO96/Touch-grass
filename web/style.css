@@ -276,6 +276,91 @@ h2 {
   transform: translateY(2px);
 }
 
+/* ---------- why an hour scores what it does ---------- */
+
+/* The bars are buttons now, so undo what a browser does to one. */
+.bar {
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  appearance: none;
+  border-radius: 0;
+}
+
+.bar:hover  { filter: brightness(1.06); }
+.bar:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+/* "Now" already wears a plain outline. The open hour needs to be
+   distinguishable from it even when they are the same bar. */
+.bar.open {
+  outline: 6px double var(--ink);
+  outline-offset: 3px;
+  filter: brightness(1.1);
+}
+
+.why {
+  margin-top: 14px;
+  border: 3px solid var(--ink);
+  background: #fff;
+  padding: 12px 14px 14px;
+}
+
+.why-h {
+  font-family: var(--fontA);
+  font-size: 26px;
+  margin: 0 0 8px;
+}
+
+.why-rows { display: flex; flex-direction: column; }
+
+.why-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+  border-bottom: 1px dotted rgba(48, 62, 78, .35);
+}
+
+.why-name { flex: 0 0 auto; }
+
+/* The reading behind the penalty — dimmer than the name, and the
+   first thing to go when the column gets tight. */
+.why-fact {
+  flex: 1 1 auto;
+  min-width: 0;
+  opacity: .65;
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.why-amt {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  min-width: 3.5ch;
+  text-align: right;
+}
+
+.why-row.fixed .why-amt { color: #b3446c; }
+
+.why-row.total {
+  border-bottom: none;
+  border-top: 3px solid var(--ink);
+  margin-top: 4px;
+  padding-top: 6px;
+  font-size: 22px;
+}
+
+.why-note {
+  margin: 8px 0 0;
+  font-size: 16px;
+  opacity: .8;
+}
+
+.why-note.fixed { color: #b3446c; opacity: 1; }
+
 /* ---------- search ---------- */
 
 .search { display: flex; gap: 12px; margin: 12px 0 0; flex-wrap: wrap; }

@@ -19,6 +19,9 @@ window.addEventListener('error', (e) => {
 });
 </script>
 <script src="scoring.js"></script>
+<script src="blend.js"></script>
+<script src="fixtures.js"></script>
+<script src="met-legend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script>
@@ -117,6 +120,14 @@ check('a lower bar sends you out in worse weather',
 /* ================= THE HOUSE RULE ================= */
 /* If you have not been out today, it must never say "stay in". */
 
+/* Both sweeps build their forecasts with since(), not flat(): flat() copies
+   a spec that carries `hour` over the hour it computes, so every row came
+   back stamped with now's hour. Since the verdict began naming only hours
+   still ahead of now, that made the candidate list empty in all ~2,600
+   combinations — the sweeps ran, and swept nothing. since() advances the
+   hours properly, so the rule is exercised on the path that has something
+   to name as well as the one that doesn't. */
+
 check('house rule: never "stayin" before your first trip',
   (() => {
     const dials = [S, Object.assign({}, S, { bar: 90 }),
@@ -128,7 +139,8 @@ check('house rule: never "stayin" before your first trip',
             for (const code of [0, 3, 45, 63, 65, 75, 95, 96]) {
               for (const wind of [2, 30, 70]) {
                 const now = at({ feels, hour, isDay, code, wind });
-                const ahead = flat(12, { feels, hour, isDay, code, wind }, s);
+                const spec = { feels, isDay, code, wind };
+                const ahead = since(hour, Array.from({ length: 12 }, () => spec), s);
                 const v = decide(now, ahead, 0, s);
                 if (v.state === 'stayin') {
                   return `stayin leaked: feels=${feels} hour=${hour} code=${code}`;
@@ -152,8 +164,11 @@ check('house rule: every not-been-out verdict is actionable',
     for (const feels of [-20, 5, 20, 40]) {
       for (const isDay of [true, false]) {
         for (const code of [0, 65, 95]) {
-          const now = at({ feels, isDay, hour: isDay ? 14 : 2, code });
-          const d = tgDecide(now, flat(12, { feels, isDay, code }), 0, S);
+          const hour = isDay ? 14 : 2;
+          const now = at({ feels, isDay, hour, code });
+          const spec = { feels, isDay, code };
+          const d = tgDecide(now,
+            since(hour, Array.from({ length: 12 }, () => spec)), 0, S);
           if (d.state === 'stayin') return 'stayin leaked';
           if (!mayLackAnHour.includes(d.state) && !d.target) {
             return 'no hour named for ' + d.state;
@@ -195,11 +210,19 @@ check('safety beats every dial turned off',
 
 /* ================= night ================= */
 
+// flat() would stamp the same `hour` on every forecast row, because the
+// spec it copies carries one — which made every "future" hour identical
+// to now. since() advances them properly, which matters now that the
+// verdict cares which side of midnight an hour falls on.
+//
+// 23:00 is deliberately not in this list: with no hours left of today it
+// now says go now, which "the day you owe is today" section pins.
 check('"go out anyways" never happens in the small hours',
   (() => {
-    for (const hour of [23, 0, 1, 2, 3, 4]) {
-      const spec = Object.assign({ isDay: false, hour }, WET);
-      const v = decide(at(spec), flat(12, spec), 0, S);
+    for (const hour of [0, 1, 2, 3, 4]) {
+      const spec = Object.assign({ isDay: false }, WET);
+      const ahead = since(hour, Array.from({ length: 12 }, () => spec));
+      const v = decide(at(Object.assign({ hour }, spec)), ahead, 0, S);
       if (v.state === 'anyways') return `leaked at ${hour}h`;
     }
     return 'clean';
@@ -215,10 +238,31 @@ check('a dark winter evening still gets pushed out',
 
 check('the small hours still name an hour to go',
   (() => {
-    const spec = Object.assign({ isDay: false, hour: 2 }, WET);
-    const d = tgDecide(at(spec), flat(12, spec), 0, S);
+    const spec = Object.assign({ isDay: false }, WET);
+    const d = tgDecide(at(Object.assign({ hour: 2 }, spec)),
+                       since(2, Array.from({ length: 12 }, () => spec)), 0, S);
     return d.state === 'waitNight' && !!d.target;
   })(), true);
+
+// Two different silences. At 23:00 the forecast is full but every hour in
+// it belongs to tomorrow, so the day is spent and the answer is "now"
+// (pinned below, under "the day you owe is today"). With no forecast at
+// all there is nothing to say "now" about either — and lang.js carries
+// copy written for exactly that, in both languages.
+check('deep night with no forecast at all still waits for the night',
+  (() => {
+    const spec = Object.assign({ isDay: false }, WET);
+    const d = tgDecide(at(Object.assign({ hour: 3 }, spec)), [], 0, S);
+    return d.state + ':' + d.target;
+  })(), 'waitNight:null');
+
+check('and it uses the words written for having no hour to name',
+  (() => {
+    const spec = Object.assign({ isDay: false }, WET);
+    return decide(at(Object.assign({ hour: 3 }, spec)), [], 0, S).sub;
+  })(),
+  "It's the middle of the night. Get some sleep, then go out at the first " +
+  "reasonable hour — that's all today asks.");
 
 /* ================= copy ================= */
 
@@ -558,6 +602,19 @@ check('an unknown stored language falls back to a supported one',
     return LANGS_AVAILABLE.some((l) => l.code === c);
   })(), true);
 
+check('the licence line credits every licensor, in both languages', (() => {
+  // "Data licensed CC BY 4.0" named nobody, which is not an attribution.
+  // MET's locationforecast is NLOD / CC BY 4.0; SMHI's open data CC BY 4.0.
+  for (const code of ['en', 'sv']) {
+    const s = TEXT[code].ui.sourceLicence;
+    if (typeof s !== 'string') return code + ' missing';
+    for (const who of ['MET Norway', 'SMHI', 'Open-Meteo', 'NLOD', 'CC BY 4.0']) {
+      if (s.indexOf(who) < 0) return code + ' omits ' + who;
+    }
+  }
+  return 'clean';
+})(), 'clean');
+
 check('every verdict state has wording in both languages',
   (() => {
     const states = ['go','goAgain','wait','waitAgain','waitDark','waitNight',
@@ -631,6 +688,205 @@ check('no verdict in either language leaks undefined',
     localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
     return 'clean';
   })(), 'clean');
+
+/* ================= why an hour scores what it does ================= */
+
+const sumParts = (e) => e.parts.reduce((t, p) => t + p.amount, 0);
+const partFor = (e, key) => e.parts.filter((p) => p.key === key)[0] || null;
+
+check('an explanation adds up to the score it explains', (() => {
+  const cases = [
+    at({}),
+    at({ pop: 80, precip: 3, feels: 4, wind: 30, isDay: false, hour: 3, code: 65 }),
+    at({ feels: 31, wind: 40, code: 95 }),
+    at({ feels: -20, code: 66, isDay: false, hour: 23 })
+  ];
+  return cases.every((h) => {
+    const e = tgExplainHour(h, S);
+    return Math.round(Math.max(0, Math.min(100, e.start + sumParts(e)))) === scoreHour(h, S);
+  });
+})(), true);
+
+check('a perfect hour has nothing to explain',
+  tgExplainHour(at({ pop: 0, precip: 0, feels: 20, wind: 5, isDay: true, hour: 14, code: 0 }), S).parts.length, 0);
+
+check('an explanation starts from 100',
+  tgExplainHour(at({}), S).start, 100);
+
+check('the rain dial at zero removes the rain row',
+  partFor(tgExplainHour(at({ pop: 90 }), Object.assign({}, S, { rain: 0 })), 'rain'), null);
+
+check('the rain dial at two doubles the rain penalty', (() => {
+  const one = partFor(tgExplainHour(at({ pop: 60 }), Object.assign({}, S, { rain: 1 })), 'rain');
+  const two = partFor(tgExplainHour(at({ pop: 60 }), Object.assign({}, S, { rain: 2 })), 'rain');
+  return two.amount === one.amount * 2;
+})(), true);
+
+check('lightning is not softened by any dial', (() => {
+  const numb = { rain: 0, cold: 0, heat: 0, wind: 0, dark: 0, bar: 60 };
+  return partFor(tgExplainHour(at({ code: 95 }), numb), 'code').amount;
+})(), -45);
+
+check('lightning is marked as not yours to tune',
+  partFor(tgExplainHour(at({ code: 95 }), S), 'code').fixed, true);
+
+check('a dialled penalty is not marked fixed',
+  partFor(tgExplainHour(at({ pop: 60 }), S), 'rain').fixed, false);
+
+check('darkness and the small hours are explained separately', (() => {
+  const e = tgExplainHour(at({ isDay: false, hour: 3 }), S);
+  return partFor(e, 'dark') !== null && partFor(e, 'night') !== null;
+})(), true);
+
+check('an ordinary dark evening is not blamed on the small hours',
+  partFor(tgExplainHour(at({ isDay: false, hour: 20 }), S), 'night'), null);
+
+check('every penalty a real hour can carry has a name in both languages', (() => {
+  const cases = [
+    at({ pop: 80, precip: 3 }), at({ feels: 2 }), at({ feels: 33 }),
+    at({ wind: 40 }), at({ isDay: false, hour: 3 }), at({ code: 95 })
+  ];
+  const keys = {};
+  cases.forEach((h) => tgExplainHour(h, S).parts.forEach((p) => { keys[p.key] = true; }));
+
+  const namesIn = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const f = T().ui.factors;
+    return Object.keys(keys).every((k) => typeof f[k] === 'string' && f[k].length > 0);
+  };
+  const ok = namesIn('en') && namesIn('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok && Object.keys(keys).length >= 6;
+})(), true);
+
+/* ================= the fact behind each penalty ================= */
+
+check('the rain row cites the chance of rain',
+  factorFact('rain', at({ pop: 53 })).indexOf('53') >= 0, true);
+
+check('the cold row cites the feels-like temperature',
+  factorFact('cold', at({ feels: 4 })), '4°C');
+
+check('the heat row cites the feels-like temperature',
+  factorFact('heat', at({ feels: 31 })), '31°C');
+
+check('the feels-like row follows your temperature unit', (() => {
+  saveUnits({ temp: 'f', wind: 'kmh' });
+  const f = factorFact('cold', at({ feels: 0 }));
+  saveUnits({ temp: 'c', wind: 'kmh' });
+  return f;
+})(), '32°F');
+
+check('the wind row follows your wind unit', (() => {
+  saveUnits({ temp: 'c', wind: 'ms' });
+  const f = factorFact('wind', at({ wind: 36 }));
+  saveUnits({ temp: 'c', wind: 'kmh' });
+  return f;
+})(), '10 m/s');
+
+check('the code row names the sky',
+  factorFact('code', at({ code: 95 })), skyName(95));
+
+check('darkness needs no further explanation',
+  factorFact('dark', at({ isDay: false })), '');
+
+check('an unknown row does not invent a fact',
+  factorFact('nonsense', at({})), '');
+
+/* ================= finding you ================= */
+
+// The bug: the page asked for a low-accuracy fix with an 8s timeout, so on
+// any device whose network provider had nothing cached it timed out without
+// ever asking the GPS — and then blamed you for blocking it.
+
+check('the first attempt allows a recent cached fix',
+  nextGeoAttempt(0).maximumAge, 600000);
+
+check('the first attempt does not wake the GPS',
+  !!nextGeoAttempt(0).enableHighAccuracy, false);
+
+check('a timed-out attempt escalates to high accuracy',
+  nextGeoAttempt(1, GEO_TIMEOUT).enableHighAccuracy, true);
+
+check('escalating asks for a fresh fix, not the cache that just failed',
+  nextGeoAttempt(1, GEO_TIMEOUT).maximumAge, 0);
+
+check('escalating waits longer than the attempt that timed out',
+  nextGeoAttempt(1, GEO_TIMEOUT).timeout > nextGeoAttempt(0).timeout, true);
+
+check('a position the device could not fix escalates too',
+  nextGeoAttempt(1, GEO_UNAVAILABLE) !== null, true);
+
+check('a denied position is never retried',
+  nextGeoAttempt(1, GEO_DENIED), null);
+
+check('there is no third attempt',
+  nextGeoAttempt(2, GEO_TIMEOUT), null);
+
+check('a denied position says it may be blocked',
+  /blocked/.test(geoFailMessage(GEO_DENIED)), true);
+
+check('a timeout does not blame blocking',
+  /blocked/.test(geoFailMessage(GEO_TIMEOUT)), false);
+
+check('a position the device could not fix reads the same as a timeout',
+  geoFailMessage(GEO_UNAVAILABLE), geoFailMessage(GEO_TIMEOUT));
+
+check('both location failures are translated', (() => {
+  localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+  const sv = [geoFailMessage(GEO_DENIED), geoFailMessage(GEO_TIMEOUT)];
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  const en = [geoFailMessage(GEO_DENIED), geoFailMessage(GEO_TIMEOUT)];
+  return sv[0] !== en[0] && sv[1] !== en[1] && sv[0] !== sv[1];
+})(), true);
+
+// The Today page calls hintPara() for its search hints but only loads
+// core.js — it lived in record.js, which only the calendar page loads.
+check('hintPara is available to any page that loads core',
+  typeof hintPara, 'function');
+
+/* ---- and whether a fix is worth three more requests each to
+        Open-Meteo, MET and SMHI ---- */
+
+const T0 = 1000000;
+const geoState = (o) => Object.assign(
+  { place: { lat: 59.33, lon: 18.07, label: 'Stockholm', named: true },
+    data: { now: {} }, stale: null, fetchedAt: T0, loading: false }, o);
+
+// The case that costs six requests per open: the page loads the
+// remembered place, and the ten-minute-old cached fix lands moments later
+// a few hundred metres away, before the first fetch has even returned.
+check('a cached fix arriving mid-load does not start a second one',
+  geoNeedsReload(
+    geoState({ data: null, fetchedAt: null, loading: true }),
+    59.34, 18.08, T0 + 200), false);
+
+check('a cached fix in the same box does not refetch a fresh forecast',
+  geoNeedsReload(geoState({}), 59.34, 18.08, T0 + 60 * 1000), false);
+
+check('a genuinely different place still reloads',
+  geoNeedsReload(geoState({}), 57.71, 11.97, T0 + 60 * 1000), true);
+
+check('a forecast old enough to be worth replacing reloads',
+  geoNeedsReload(geoState({}), 59.33, 18.07, T0 + GEO_REUSE_MS), true);
+
+// A stale forecast is on screen only because the last fetch failed, so a
+// fresh fix is exactly the moment to try the network again.
+check('a stale forecast reloads even in the same place',
+  geoNeedsReload(geoState({ stale: T0 - 1000 }), 59.33, 18.07, T0 + 60 * 1000), true);
+
+check('nothing loaded at all reloads',
+  geoNeedsReload(geoState({ place: null, data: null }), 59.33, 18.07, T0), true);
+
+// One box, shared by the cached forecast, the kept place name and this
+// decision — so all three agree about what counts as the same place.
+check('a fix well inside the box is here',
+  nearPlace({ lat: 59.33, lon: 18.07 }, 59.33 + SAME_PLACE_DEG / 2, 18.07), true);
+
+check('a fix outside the box is somewhere else',
+  nearPlace({ lat: 59.33, lon: 18.07 }, 59.33 + SAME_PLACE_DEG * 2, 18.07), false);
+
+check('nothing at all is not near anywhere', nearPlace(null, 59.33, 18.07), false);
 
 /* ================= units ================= */
 
@@ -743,6 +999,657 @@ check('it says something in Swedish too',
 
 if (REAL_LASTOUT === null) localStorage.removeItem('touchgrass.lastout');
 else localStorage.setItem('touchgrass.lastout', REAL_LASTOUT);
+
+/* ================= blending sources ================= */
+
+check('all three sources carry their stated weights', (() => {
+  const w = tgWeigh(['met', 'smhi', 'om']);
+  return w.met === 0.5 && w.smhi === 0.25 && w.om === 0.25;
+})(), true);
+
+check('a missing source has its weight shared out proportionally', (() => {
+  const w = tgWeigh(['met', 'om']);
+  return Math.abs(w.met - 2 / 3) < 1e-9 && Math.abs(w.om - 1 / 3) < 1e-9;
+})(), true);
+
+check('weights always sum to one', (() => {
+  const sets = [['met'], ['smhi'], ['om'], ['met', 'smhi'],
+                ['smhi', 'om'], ['met', 'smhi', 'om']];
+  return sets.every((s) => {
+    const w = tgWeigh(s);
+    const total = Object.keys(w).reduce((t, k) => t + w[k], 0);
+    return Math.abs(total - 1) < 1e-9;
+  });
+})(), true);
+
+check('one source on its own carries all the weight', tgWeigh(['om']).om, 1);
+
+check('no sources yields no weights', Object.keys(tgWeigh([])).length, 0);
+
+/* Attribution. MET Norway and SMHI both require it by licence, so the
+   credit has to name all three whether or not a forecast has landed —
+   crediting Open-Meteo alone was a false statement on first paint, on
+   the stale-cache path and on the failure path. */
+
+check('every source in the blend is credited', (() => {
+  const missing = Object.keys(TG_WEIGHTS)
+    .filter((k) => !TG_CREDITS.some((c) => c.key === k));
+  return missing.join(',');
+})(), '');
+
+check('every credit carries a name, a link and a licence', (() => {
+  return TG_CREDITS.every((c) =>
+    typeof c.name === 'string' && c.name.length > 1 &&
+    /^https:\/\//.test(c.url) && /CC BY|NLOD/.test(c.licence));
+})(), true);
+
+check('the credit names MET and SMHI, not Open-Meteo alone', (() => {
+  return TG_CREDITS.map((c) => c.name).join(' | ');
+})(), 'MET Norway (YR) | SMHI | Open-Meteo');
+
+check('the breakdown reads heaviest source first', (() => {
+  // data.sources arrives in whatever order the hours happened to name
+  // the services, which put the 25% ones in front of the 50% one.
+  return tgCreditOrder(['om', 'met', 'smhi']).join(',');
+})(), 'met,smhi,om');
+
+check('the breakdown order does not depend on the order it was given', (() => {
+  const orders = [['om', 'met', 'smhi'], ['smhi', 'om', 'met'],
+                  ['met', 'om', 'smhi'], ['om', 'smhi', 'met']];
+  return orders.map((o) => tgCreditOrder(o).join(',')).join(' / ');
+})(), 'met,smhi,om / met,smhi,om / met,smhi,om / met,smhi,om');
+
+check('a partial blend still reads heaviest first',
+  tgCreditOrder(['om', 'met']).join(','), 'met,om');
+
+const hr = (time, o) => Object.assign(
+  { time: time, feels: 10, temp: 10, pop: 0, precip: 0, wind: 0, code: 0 }, o || {});
+
+check('one source blends to itself', (() => {
+  const out = tgBlend({ om: [hr('2026-09-08T21:00:00Z', { feels: 12.5, pop: 40 })] });
+  return out.length === 1 && out[0].feels === 12.5 && out[0].pop === 40;
+})(), true);
+
+check('two sources average by weight', (() => {
+  // met 0.5 / om 0.25 renormalises to 2/3 and 1/3.
+  const out = tgBlend({
+    met: [hr('2026-09-08T21:00:00Z', { feels: 12 })],
+    om:  [hr('2026-09-08T21:00:00Z', { feels: 18 })]
+  });
+  return Math.abs(out[0].feels - 14) < 1e-9;   // 12*(2/3) + 18*(1/3)
+})(), true);
+
+check('all three average by weight', (() => {
+  const out = tgBlend({
+    met:  [hr('2026-09-08T21:00:00Z', { pop: 80 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { pop: 40 })],
+    om:   [hr('2026-09-08T21:00:00Z', { pop: 20 })]
+  });
+  return Math.abs(out[0].pop - 55) < 1e-9;     // 80*.5 + 40*.25 + 20*.25
+})(), true);
+
+check('an hour only one source has still appears', (() => {
+  const out = tgBlend({
+    met: [hr('2026-09-08T21:00:00Z'), hr('2026-09-08T22:00:00Z', { feels: 9 })],
+    om:  [hr('2026-09-08T21:00:00Z')]
+  });
+  return out.length === 2 && out[1].feels === 9;
+})(), true);
+
+check('a blended hour names the sources behind it', (() => {
+  const out = tgBlend({
+    met: [hr('2026-09-08T21:00:00Z')],
+    om:  [hr('2026-09-08T21:00:00Z')]
+  });
+  return out[0].sources.sort().join(',');
+})(), 'met,om');
+
+check('a blended hour names its sources in a fixed order', (() => {
+  // Not sorted here: the list has to come out the same whichever order
+  // the services answered in, or the two engines produce different JSON
+  // from the same bytes and the cross-runtime check has nothing to bite on.
+  const t = '2026-09-08T21:00:00Z';
+  const a = tgBlend({ om: [hr(t)], smhi: [hr(t)], met: [hr(t)] })[0].sources.join(',');
+  const b = tgBlend({ met: [hr(t)], om: [hr(t)], smhi: [hr(t)] })[0].sources.join(',');
+  return a + ' / ' + b;
+})(), 'met,smhi,om / met,smhi,om');
+
+check('blended hours come back in time order', (() => {
+  const out = tgBlend({
+    om: [hr('2026-09-08T23:00:00Z'), hr('2026-09-08T21:00:00Z'),
+         hr('2026-09-08T22:00:00Z')]
+  });
+  return out.map((h) => h.time.slice(11, 13)).join(',');
+})(), '21,22,23');
+
+check('an empty blend is empty, not a crash', tgBlend({}).length, 0);
+
+check('a code carried by more weight beats one carried by less', (() => {
+  // Heaviest source (met 0.5) NOT listed first. smhi 0.25 + om 0.25 overcast vs met 0.5 clear.
+  // Tie on weight 0.5 each, broken by the heaviest single source: met with 0.5 > smhi/om with 0.25.
+  // The stub would return smhi's 3 (first source). Real vote returns met's 0.
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    met:  [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  });
+  return out[0].code;
+})(), 0);
+
+check('two agreeing sources settle it between themselves', (() => {
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 61 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 61 })]
+  });
+  return out[0].code;
+})(), 61);
+
+check('a tied vote is broken by the heaviest single source', (() => {
+  // om 0.25 code:3 and smhi 0.25 code:3 total 0.5; met 0.5 code:61 also totals 0.5.
+  // Tie on weight 0.5 each. Heaviest for code 3 is 0.25; heaviest for code 61 is 0.5.
+  // Code 61 wins. Listed first to test that order doesn't matter; stub would return 3.
+  const out = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    met:  [hr('2026-09-08T21:00:00Z', { code: 61 })]
+  });
+  return out[0].code;
+})(), 61);
+
+check('a lone source supplies its own code',
+  tgBlend({ smhi: [hr('2026-09-08T21:00:00Z', { code: 45 })] })[0].code, 45);
+
+/* Determinism across engines. With MET absent — a timeout, a 429, met.no
+   down — SMHI and Open-Meteo renormalise to 0.5/0.5, so two disagreeing
+   codes tie on total weight AND on heaviest single source. A for…in over
+   the tally then hands the winner to the engine: V8 walks integer-like
+   keys numerically and Rhino walks them in insertion order, so the page
+   and the widget rendered opposite skies from the same bytes. */
+
+check('a dead-tied vote goes to the rougher sky, not to whichever key came first', (() => {
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  });
+  return out[0].code;
+})(), 95);
+
+check('a dead-tied vote does not depend on the order the sources arrived', (() => {
+  const a = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  })[0].code;
+  const b = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })]
+  })[0].code;
+  return a === b && a === 95;
+})(), true);
+
+check('a dead tie between two mild codes still settles the same way', (() => {
+  // Nothing thundery about it: the rule is total, not a storm special case.
+  const a = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 45 })]
+  })[0].code;
+  const b = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: 45 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })]
+  })[0].code;
+  return a + ',' + b;
+})(), '45,45');
+
+check('no numeric code anywhere means overcast, not clear sky', (() => {
+  // "Clear" is the worst thing to invent out of an unknown: it takes no
+  // penalty and tgIsRisky never sees it.
+  const out = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: null })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 'thunder' })]
+  });
+  return out[0].code;
+})(), 3);
+
+// The spec decision, pinned so it cannot change by accident:
+// there is no safety override on the vote. Dangerous code listed first to ensure
+// voting actually happens; stub would return 95. Real vote returns 0 (met+om weight 0.75 > smhi 0.25).
+check('an outvoted thunderstorm does not survive the vote', (() => {
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    met:  [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  });
+  return out[0].code;
+})(), 0);
+
+check('a thunderstorm with the weight behind it does survive', (() => {
+  const out = tgBlend({
+    met:  [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 3 })]
+  });
+  return out[0].code;
+})(), 95);
+
+check('apparent temperature matches the worked example', (() => {
+  // SMHI Stockholm 2026-09-08T21:00Z: 16.1 C, 87% RH, 2.4 m/s.
+  // e  = 0.87 * 6.105 * exp(17.27*16.1/(237.7+16.1)) = 15.885
+  // AT = 16.1 + 0.33*15.885 - 0.70*2.4 - 4.00        = 15.662
+  return Math.round(tgApparent(16.1, 87, 2.4) * 10) / 10;
+})(), 15.7);
+
+check('wind makes it feel colder',
+  tgApparent(10, 70, 10) < tgApparent(10, 70, 0), true);
+
+check('humidity makes a warm day feel hotter',
+  tgApparent(30, 90, 2) > tgApparent(30, 30, 2), true);
+
+check('a missing humidity does not produce nonsense',
+  isFinite(tgApparent(16, null, 2)), true);
+
+/* ================= Task 5: SMHI ================= */
+
+check('SMHI light rain is WMO light rain', TG_SMHI_WMO[18], 61);
+check('SMHI clear sky is WMO clear', TG_SMHI_WMO[1], 0);
+check('SMHI overcast is WMO overcast', TG_SMHI_WMO[6], 3);
+check('SMHI thunderstorm is WMO thunderstorm', TG_SMHI_WMO[11], 95);
+check('SMHI has all 27 symbols mapped', Object.keys(TG_SMHI_WMO).length, 27);
+
+check('every SMHI symbol maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return Object.keys(TG_SMHI_WMO).every((k) => typeof sky[TG_SMHI_WMO[k]] === 'string');
+})(), true);
+
+check('the SMHI fixture normalises to three hours',
+  tgNormaliseSmhi(FIXTURE_SMHI).length, 3);
+
+check('SMHI wind is converted to km/h',
+  Math.round(tgNormaliseSmhi(FIXTURE_SMHI)[0].wind * 100) / 100, 8.64);
+
+check('SMHI gets a computed feels-like',
+  Math.round(tgNormaliseSmhi(FIXTURE_SMHI)[0].feels * 10) / 10, 15.7);
+
+check('SMHI rain probability carries through',
+  tgNormaliseSmhi(FIXTURE_SMHI)[0].pop, 83);
+
+check('SMHI symbol 18 normalises to WMO 61',
+  tgNormaliseSmhi(FIXTURE_SMHI)[0].code, 61);
+
+check('a broken SMHI payload normalises to nothing, not a throw',
+  tgNormaliseSmhi({ nonsense: true }).length, 0);
+
+/* ================= Task 6: MET Norway ================= */
+
+check('MET clear sky is WMO clear', TG_MET_WMO.clearsky, 0);
+check('MET fair is WMO mostly clear', TG_MET_WMO.fair, 1);
+check('MET partlycloudy is WMO partly cloudy', TG_MET_WMO.partlycloudy, 2);
+check('MET cloudy is WMO overcast', TG_MET_WMO.cloudy, 3);
+check('MET heavy rain is WMO heavy rain', TG_MET_WMO.heavyrain, 65);
+
+check('every MET thunder variant is a thunderstorm', (() => {
+  return Object.keys(TG_MET_WMO)
+    .filter((k) => k.indexOf('thunder') >= 0)
+    .every((k) => TG_MET_WMO[k] === 95);
+})(), true);
+
+check('every MET symbol maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return Object.keys(TG_MET_WMO).every((k) => typeof sky[TG_MET_WMO[k]] === 'string');
+})(), true);
+
+/* The two tests above iterate TG_MET_WMO, so they can only confirm what
+   is already in the table and structurally cannot notice a symbol MET
+   sends that we never mapped. met-legend.js is MET's own published list,
+   so these compare the table against the vocabulary rather than itself.
+   Membership is the assertion that matters: tgMetCode's default is a
+   describable code, so "maps to something lang.js knows" is satisfied by
+   a missing key too. */
+
+check("MET's published vocabulary is a decent size", MET_LEGEND_SYMBOLS.length, 41);
+
+check('every symbol MET publishes has its own entry in the table', (() => {
+  const missing = MET_LEGEND_SYMBOLS.filter((s) => TG_MET_WMO[s] === undefined);
+  return missing.join(',');
+})(), '');
+
+check('every symbol MET publishes maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return MET_LEGEND_SYMBOLS.every((s) => typeof sky[TG_MET_WMO[s]] === 'string');
+})(), true);
+
+check('every thunder symbol MET publishes votes as a thunderstorm', (() => {
+  const wrong = MET_LEGEND_SYMBOLS
+    .filter((s) => s.indexOf('thunder') >= 0)
+    .filter((s) => tgMetCode(s + '_night') !== 95);
+  return wrong.join(',');
+})(), '');
+
+check("MET's own double-s spellings are the ones the API sends", (() => {
+  // A long-standing typo in MET's IDs. Unmapped, thundersnow arrives as
+  // a grey lid from the source carrying half the weight, and the storm
+  // is voted away before tgIsRisky can see it.
+  return tgMetCode('lightssleetshowersandthunder_day') === 95 &&
+         tgMetCode('lightssnowshowersandthunder_day') === 95;
+})(), true);
+
+check('a thundersnow hour survives the blend when MET reports it', (() => {
+  const t = '2026-09-08T21:00:00Z';
+  const row = {
+    time: t,
+    data: {
+      instant: { details: { air_temperature: -1, wind_speed: 4 } },
+      next_1_hours: {
+        summary: { symbol_code: 'lightssnowshowersandthunder_night' },
+        details: { precipitation_amount: 0.6, probability_of_precipitation: 80 }
+      }
+    }
+  };
+  const met = { properties: { timeseries: [row] } };
+  const out = tgBlend({
+    met: tgNormaliseMet(met),
+    smhi: [hr(t, { code: 3 })],
+    om: [hr(t, { code: 3 })]
+  });
+  return out[0].code;
+})(), 95);
+
+check('the day suffix is stripped before mapping',
+  tgNormaliseMet(FIXTURE_MET)[0].code, 2);
+
+check('the MET fixture normalises to three hours',
+  tgNormaliseMet(FIXTURE_MET).length, 3);
+
+check('MET feels-like comes straight from the API',
+  tgNormaliseMet(FIXTURE_MET)[2].feels, 14.3);
+
+check('MET wind is converted to km/h',
+  Math.round(tgNormaliseMet(FIXTURE_MET)[0].wind * 100) / 100, 11.16);
+
+check('an hour past the hourly horizon is skipped, not half-read', (() => {
+  const trimmed = { properties: { timeseries: [
+    { time: '2026-09-09T06:00:00Z',
+      data: { instant: { details: { air_temperature: 9, wind_speed: 1 } } } }
+  ] } };
+  return tgNormaliseMet(trimmed).length;
+})(), 0);
+
+check('a broken MET payload normalises to nothing, not a throw',
+  tgNormaliseMet({ nonsense: true }).length, 0);
+
+/* ================= Task 7: Open-Meteo ================= */
+
+check('Open-Meteo normalises to its hourly rows',
+  tgNormaliseOm(FIXTURE_OM).hours.length, 10);
+
+check('Open-Meteo local times are converted to UTC for merging',
+  // Local 19:00 at UTC+2. The whole hourly block normalises, including
+  // the hours before current.time — trimming to now is tgForecast's job.
+  tgNormaliseOm(FIXTURE_OM).hours[0].time, '2026-09-08T17:00:00Z');
+
+check('Open-Meteo wind is already km/h and passes through',
+  tgNormaliseOm(FIXTURE_OM).hours[0].wind, 7.2);
+
+check('daylight is recorded against the UTC stamp',
+  tgNormaliseOm(FIXTURE_OM).daylight.byTime['2026-09-08T21:00:00Z'], false);
+
+check('daylight before sunset is recorded as day',
+  // 17:00Z is local 19:00, before the 19:41 sunset. Without this the
+  // fixture is all-night and "always false" would satisfy it.
+  tgNormaliseOm(FIXTURE_OM).daylight.byTime['2026-09-08T17:00:00Z'], true);
+
+check('the current hour is recorded, converted to UTC',
+  tgNormaliseOm(FIXTURE_OM).daylight.nowUtc, '2026-09-08T21:00:00Z');
+
+check('the current hour is the hour current.time falls inside', (() => {
+  // Real Open-Meteo sends current.time with live minutes; 08:45 belongs
+  // to the 08:00 row, never the 09:00 one.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  om.current.time = '2026-09-08T23:45';
+  return tgNormaliseOm(om).daylight.nowUtc;
+})(), '2026-09-08T21:00:00Z');
+
+check('a payload with no current block has no anchor, rather than a throw',
+  tgNormaliseOm({ utc_offset_seconds: 7200,
+                  hourly: { time: ['2026-09-08T23:00'] } }).daylight.nowUtc, null);
+
+check('a missing is_day column degrades instead of throwing', (() => {
+  // A 200 carrying a truncated payload must not take the background
+  // check down with it — Weather.fetch promises null, not an exception.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  delete om.hourly.is_day;
+  const n = tgNormaliseOm(om);
+  return n.hours.length === 10 &&
+         n.daylight.byTime['2026-09-08T17:00:00Z'] === false;
+})(), true);
+
+check('an unparseable hourly stamp is skipped, not half-read', (() => {
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  om.hourly.time[0] = null;
+  om.hourly.time[1] = 'not a time';
+  return tgNormaliseOm(om).hours.length;
+})(), 8);
+
+check('a stamp that is not a string yields nothing, not a throw',
+  tgLocalToUtc(null, 7200), null);
+
+check('the local hour is recorded against the UTC stamp',
+  tgNormaliseOm(FIXTURE_OM).daylight.localHourByTime['2026-09-08T22:00:00Z'], 0);
+
+check('sunset comes through as minutes since local midnight',
+  tgNormaliseOm(FIXTURE_OM).daylight.sunsetMin, 19 * 60 + 41);
+
+check('a broken Open-Meteo payload yields no hours, not a throw',
+  tgNormaliseOm({ nonsense: true }).hours.length, 0);
+
+/* ================= Task 8: the doorway ================= */
+
+check('a forecast from all three names all three sources', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.sources.sort().join(',');
+})(), 'met,om,smhi');
+
+check('a forecast carries the shape the decision expects', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI });
+  const h = f.ahead[0];
+  return typeof h.hour === 'number' && typeof h.feels === 'number' &&
+         typeof h.isDay === 'boolean' && typeof h.hoursFromNow === 'number' &&
+         typeof h.code === 'number';
+})(), true);
+
+check('daylight always comes from Open-Meteo, never from the vote', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.ahead.every((h) => h.isDay === false) && f.now.isDay === false;
+})(), true);
+
+check('daylight is read from the Open-Meteo spine, not derived from the vote', (() => {
+  // FIXTURE_OM is all-night, which cannot distinguish "read from the
+  // spine" from "always false". Copy it (never mutate the shared
+  // fixture) and flip exactly one hour to day, keeping every weather
+  // code non-zero so a vote-derived stand-in (e.g. code === clearsky)
+  // cannot reproduce the pattern by accident.
+  // The alternating pattern also pins the alignment: the forecast starts
+  // at index 4 (current.time), so an off-by-one in the anchor shows up
+  // here as an inverted string rather than as nothing at all.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  om.hourly.is_day = [1, 1, 1, 1, 0, 1, 0, 1, 0, 1];
+  const f = tgForecast({ om, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  const days = [f.now.isDay].concat(f.ahead.map((h) => h.isDay));
+  return days.join(',');
+})(), 'false,true,false,true,false,true');
+
+check('hoursFromNow counts up from now, not down', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.ahead.map((h) => h.hoursFromNow).join(',');
+})(), '1,2,3,4,5');
+
+check('an hour Open-Meteo does not cover is dropped, not guessed', (() => {
+  // An extra MET hour past Open-Meteo's last (02:00Z) has no daylight
+  // behind it, so it must not appear however far ahead it is.
+  const met = JSON.parse(JSON.stringify(FIXTURE_MET));
+  met.properties.timeseries.push({
+    time: '2026-09-09T05:00:00Z',
+    data: { instant: { details: { air_temperature: 12, wind_speed: 2 } },
+            next_1_hours: { summary: { symbol_code: 'cloudy' },
+              details: { precipitation_amount: 0,
+                         probability_of_precipitation: 0 } } }
+  });
+  const f = tgForecast({ om: FIXTURE_OM, met });
+  return [f.now].concat(f.ahead).some((h) => h.time === '2026-09-09T05:00:00Z');
+})(), false);
+
+/* The anchor. Open-Meteo's hourly block starts at local midnight, so a
+   forecast that simply takes rows[0] reports midnight as "now" whatever
+   the time of day, and points a twelve-hour chart at hours that have
+   already gone. current.time is the only thing that says where in the
+   block you are. */
+
+check('now is the hour current.time falls in, not the first hourly row', (() => {
+  // FIXTURE_OM's block opens at local 19:00; current.time is 23:00.
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.now.hour;
+})(), 23);
+
+check('no hour earlier than current.time survives the blend', (() => {
+  const f = tgForecast({ om: FIXTURE_OM, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return [f.now].concat(f.ahead).map((h) => h.time).join(',');
+})(), '2026-09-08T21:00:00Z,2026-09-08T22:00:00Z,2026-09-08T23:00:00Z,' +
+      '2026-09-09T00:00:00Z,2026-09-09T01:00:00Z,2026-09-09T02:00:00Z');
+
+check('the anchor moves with current.time', (() => {
+  // Move the clock on two hours and the whole forecast slides with it.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  om.current.time = '2026-09-09T01:30';
+  const f = tgForecast({ om, met: FIXTURE_MET, smhi: FIXTURE_SMHI });
+  return f.now.hour + '@' + f.now.time + ' +' + f.ahead.length;
+})(), '1@2026-09-08T23:00:00Z +3');
+
+check('a payload with no current block still forecasts from what it has', (() => {
+  // Anchoring is a trim, not a requirement: no current means no trim.
+  const om = JSON.parse(JSON.stringify(FIXTURE_OM));
+  delete om.current;
+  const f = tgForecast({ om });
+  return f.now.hour;
+})(), 19);
+
+check('sunset survives the blend',
+  tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI }).sunsetMin, 19 * 60 + 41);
+
+check('Open-Meteo alone still produces a forecast', (() => {
+  const f = tgForecast({ om: FIXTURE_OM });
+  return f.ahead.length > 0 && f.sources.join(',') === 'om';
+})(), true);
+
+check('no sources at all produces nothing, not a crash',
+  tgForecast({}), null);
+
+check('without Open-Meteo there is no daylight, so no forecast',
+  tgForecast({ met: FIXTURE_MET, smhi: FIXTURE_SMHI }), null);
+
+check('the string doorway agrees with the object one', (() => {
+  const a = tgForecast({ om: FIXTURE_OM, smhi: FIXTURE_SMHI });
+  const b = JSON.parse(tgForecastJson(
+    JSON.stringify(FIXTURE_OM), null, JSON.stringify(FIXTURE_SMHI)));
+  return JSON.stringify(a) === JSON.stringify(b);
+})(), true);
+
+/* ================= the day you owe is today ================= */
+
+// An evening forecast reaches into tomorrow morning. The house rule says
+// there is always a time attached — but if you have not been out today,
+// that time has to be today. These build a forecast from an arbitrary
+// hour so the midnight boundary can be crossed on purpose.
+function since(nowHour, specs, s) {
+  return specs.map((spec, i) => {
+    const h = at(Object.assign({ hour: (nowHour + i + 1) % 24 }, spec));
+    h.hoursFromNow = i + 1;
+    h.label = String(h.hour).padStart(2, '0');
+    h.score = scoreHour(h, s || S);
+    return h;
+  });
+}
+
+const DRY_NIGHT = { isDay: false, pop: 5, precip: 0, code: 0 };
+const WET_NIGHT = { isDay: false, pop: 100, precip: 3, code: 65 };
+const FINE_DAY  = { isDay: true,  pop: 5,  precip: 0, code: 0 };
+
+// 22:00, soaked, not been out. 23:00 is merely dry; 07:00 tomorrow is
+// lovely. The old code reached over midnight and said "go at seven".
+const eveningNow = at(Object.assign({ hour: 22 }, WET_NIGHT));
+const eveningAhead = since(22, [
+  DRY_NIGHT,                                    // 23 — tonight, dry, still dark
+  WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,   // 00-03 tomorrow
+  WET_NIGHT, WET_NIGHT, WET_NIGHT,              // 04-06 tomorrow
+  FINE_DAY, FINE_DAY, FINE_DAY, FINE_DAY        // 07-10 tomorrow, lovely
+]);
+
+check('an evening verdict never sends you to tomorrow morning',
+  decide(eveningNow, eveningAhead, 0, S).decision.target.hour, 23);
+
+check('an evening verdict names a today state, not a wait-for-tomorrow',
+  decide(eveningNow, eveningAhead, 0, S).decision.state, 'anywaysBest');
+
+// Once you have been out, the day is no longer owed and tomorrow is fair
+// game again.
+check('having been out, tomorrow morning is allowed back',
+  decide(eveningNow, eveningAhead, 1, S).decision.target.hour, 7);
+
+// Midnight itself belongs to tomorrow.
+check('the hour of midnight is not part of today', (() => {
+  const ahead = since(22, [WET_NIGHT, FINE_DAY, FINE_DAY, FINE_DAY]);
+  const d = decide(eveningNow, ahead, 0, S).decision;
+  return d.target;
+})(), null);
+
+// 23:00 with nothing left of today: the least-bad hour is this one.
+check('at the last hour of the day it says go now, not wait for the night',
+  decide(at(Object.assign({ hour: 23 }, WET_NIGHT)),
+         since(23, [WET_NIGHT, WET_NIGHT, WET_NIGHT, FINE_DAY]),
+         0, S).decision.state, 'anyways');
+
+check('at the last hour of the day there is no hour to point at',
+  decide(at(Object.assign({ hour: 23 }, WET_NIGHT)),
+         since(23, [WET_NIGHT, WET_NIGHT, WET_NIGHT, FINE_DAY]),
+         0, S).decision.target, null);
+
+// After midnight the new day has hours in it again, so dawn still counts.
+check('at two in the morning, dawn is today and still worth naming', (() => {
+  const d = decide(at(Object.assign({ hour: 2 }, WET_NIGHT)),
+    since(2, [WET_NIGHT, WET_NIGHT, WET_NIGHT,
+              Object.assign({}, WET_NIGHT, { isDay: true }),
+              Object.assign({}, WET_NIGHT, { isDay: true })]),
+    0, S).decision;
+  return d.state + ':' + d.target.hour;
+})(), 'waitDark:6');
+
+// Danger is the exception: in a storm the honest answer is "not tonight".
+check('weather that can hurt you may still point at tomorrow', (() => {
+  // Order matters: WET_NIGHT carries code 65, so the lightning code has
+  // to be applied after it, not before.
+  const stormNow = at(Object.assign({}, WET_NIGHT, { hour: 22, code: 95 }));
+  const ahead = since(22, [
+    Object.assign({}, WET_NIGHT, { code: 95 }),
+    WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,
+    FINE_DAY, FINE_DAY, FINE_DAY, FINE_DAY
+  ]);
+  const d = decide(stormNow, ahead, 0, S).decision;
+  return d.state + ':' + d.target.hour;
+})(), 'waitRisky:7');
+
+// The safety path names the first hour that clears your bar, not merely
+// the best one — so a decent early hour beats a perfect later one. This
+// separates the two routes through that path, which a single storm test
+// cannot: with only "the best hour" it would answer 9 instead of 5.
+check('danger names the first safe hour, not the finest one', (() => {
+  const stormNow = at(Object.assign({}, WET_NIGHT, { hour: 22, code: 95 }));
+  const decent = { isDay: true, pop: 30, precip: 0, code: 0 };   // clears 60
+  const perfect = { isDay: true, pop: 0, precip: 0, code: 0 };   // better still
+  const ahead = since(22, [
+    Object.assign({}, WET_NIGHT, { code: 95 }),
+    WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT, WET_NIGHT,
+    decent,                       // 06 — first to clear the bar, at 84
+    perfect, perfect, perfect, perfect   // 07-10, better still at 100
+  ]);
+  return decide(stormNow, ahead, 0, S).decision.target.hour;
+})(), 6);
 
 /* ================= report ================= */
 

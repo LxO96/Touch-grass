@@ -1,0 +1,17 @@
+{
+  "referenceTime": "2026-09-08T20:00:00Z",
+  "timeSeries": [
+    { "time": "2026-09-08T21:00:00Z", "data": { "air_temperature": 16.1,
+      "wind_speed": 2.4, "relative_humidity": 87,
+      "probability_of_precipitation": 83, "precipitation_amount_mean": 0.3,
+      "symbol_code": 18 } },
+    { "time": "2026-09-08T22:00:00Z", "data": { "air_temperature": 15.6,
+      "wind_speed": 2.7, "relative_humidity": 90,
+      "probability_of_precipitation": 93, "precipitation_amount_mean": 0.4,
+      "symbol_code": 18 } },
+    { "time": "2026-09-08T23:00:00Z", "data": { "air_temperature": 14.9,
+      "wind_speed": 2.6, "relative_humidity": 90,
+      "probability_of_precipitation": 83, "precipitation_amount_mean": 0.4,
+      "symbol_code": 18 } }
+  ]
+}
