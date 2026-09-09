@@ -120,6 +120,14 @@ check('a lower bar sends you out in worse weather',
 /* ================= THE HOUSE RULE ================= */
 /* If you have not been out today, it must never say "stay in". */
 
+/* Both sweeps build their forecasts with since(), not flat(): flat() copies
+   a spec that carries `hour` over the hour it computes, so every row came
+   back stamped with now's hour. Since the verdict began naming only hours
+   still ahead of now, that made the candidate list empty in all ~2,600
+   combinations — the sweeps ran, and swept nothing. since() advances the
+   hours properly, so the rule is exercised on the path that has something
+   to name as well as the one that doesn't. */
+
 check('house rule: never "stayin" before your first trip',
   (() => {
     const dials = [S, Object.assign({}, S, { bar: 90 }),
@@ -131,7 +139,8 @@ check('house rule: never "stayin" before your first trip',
             for (const code of [0, 3, 45, 63, 65, 75, 95, 96]) {
               for (const wind of [2, 30, 70]) {
                 const now = at({ feels, hour, isDay, code, wind });
-                const ahead = flat(12, { feels, hour, isDay, code, wind }, s);
+                const spec = { feels, isDay, code, wind };
+                const ahead = since(hour, Array.from({ length: 12 }, () => spec), s);
                 const v = decide(now, ahead, 0, s);
                 if (v.state === 'stayin') {
                   return `stayin leaked: feels=${feels} hour=${hour} code=${code}`;
@@ -155,8 +164,11 @@ check('house rule: every not-been-out verdict is actionable',
     for (const feels of [-20, 5, 20, 40]) {
       for (const isDay of [true, false]) {
         for (const code of [0, 65, 95]) {
-          const now = at({ feels, isDay, hour: isDay ? 14 : 2, code });
-          const d = tgDecide(now, flat(12, { feels, isDay, code }), 0, S);
+          const hour = isDay ? 14 : 2;
+          const now = at({ feels, isDay, hour, code });
+          const spec = { feels, isDay, code };
+          const d = tgDecide(now,
+            since(hour, Array.from({ length: 12 }, () => spec)), 0, S);
           if (d.state === 'stayin') return 'stayin leaked';
           if (!mayLackAnHour.includes(d.state) && !d.target) {
             return 'no hour named for ' + d.state;
