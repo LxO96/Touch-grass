@@ -116,16 +116,30 @@ every daytime hour as night. So daylight has a defined fallback chain,
 and it is the one part of the merge that does not simply drop a missing
 source:
 
-1. Open-Meteo's `is_day` and `daily.sunset`, when it answered.
-2. Otherwise MET's `symbol_code` suffix — `_day` / `_night` — which is
-   exactly what it encodes. `sunset` is then null, which the page and the
-   widget already handle (a fixed reminder time is used instead of one
-   measured back from sundown).
-3. Otherwise, if neither answered, there is no forecast to blend at all
-   and the existing cached-forecast path takes over.
+**Open-Meteo is therefore load-bearing, not merely weighted.** An earlier
+draft of this spec had daylight fall back to MET's `symbol_code` suffix
+(`_day` / `_night`) when Open-Meteo was missing. Writing the
+implementation plan showed that this does not work, and the reason is
+worth recording so nobody tries it again:
 
-This is the only field whose absence changes the score's meaning rather
-than its precision, which is why it gets a chain instead of a weight.
+- The suffix supplies `is_day`, but not the **local hour**. The score
+  penalises the small hours separately (`-25 x dark` for 23:00–05:00),
+  and every bar in the chart is labelled with an hour.
+- The local hour requires the location's UTC offset. MET publishes
+  timestamps in UTC and no offset; SMHI likewise. **Open-Meteo's
+  `utc_offset_seconds` is the only source of it** — which is also what
+  lines the three time grids up in the first place.
+
+So an hour with no Open-Meteo row is dropped, and a forecast with no
+Open-Meteo at all is no forecast: the page falls through to its existing
+cached-forecast path, exactly as it does today when the one source it
+has is unreachable. Open-Meteo being globally covering and highly
+available is what makes this acceptable; if that ever stops being true,
+the fix is a timezone lookup, not a cleverer daylight guess.
+
+Daylight is the only field whose absence changes the score's *meaning*
+rather than its precision, which is why it gets this treatment instead
+of a weight.
 
 ### Decided: no safety override on the code vote
 
