@@ -149,6 +149,25 @@ if *SMHI* alone reports it at 0.25, it does not. Because `tgIsRisky()`
 reads the blended code, the safety path will not fire on an outvoted
 storm.
 
+**Re-examined 2026-09-09 and reaffirmed.** A later review pushed back with a
+sharper version of the objection: the vote is defensible for the *displayed*
+code and for the -45 penalty, but `tgIsRisky` is not a scoring input — it is
+the gate that overrides every dial the user owns, and `scoring.js` says of
+lightning "never discounted" in as many words. The concrete shape it named:
+Open-Meteo forecasts a thunderstorm, MET and SMHI do not, the storm is voted
+away, and because pop and precip are means the hour can clear the bar and the
+app says GO OUTSIDE. Convective storms are exactly where models disagree.
+
+A cheap middle path exists and was offered — have `tgBlend` emit a separate
+`stormSeen` flag, true if any contributor reports lightning, leave the vote
+governing the displayed code, and let the risk check read the flag. Both MET
+(`probability_of_thunder`) and SMHI (`thunderstorm_probability`) publish a
+better signal still.
+
+It was declined, twice, by the person whose app this is. The rule stands:
+one vote, no override, safety included. Anyone reading this later should
+treat it as settled rather than as an oversight to correct.
+
 This was raised and chosen deliberately, for consistency — the alternative
 was "any source reporting lightning makes it lightning". It is recorded
 here so it reads as a decision rather than an oversight, and a test
