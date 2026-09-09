@@ -275,6 +275,8 @@ en: {
     sourcesBlurb: 'Free, open weather data. No API key, no account, and your coordinates are sent to nobody else.',
     sourceLicence: 'Data licensed CC BY 4.0.',
     updated: (t) => `Fetched ${t}.`,
+    blendedFrom: 'Blended from',
+    sourceWeight: (name, pct) => `${name} ${pct}%`,
 
     // data
     dataSummary: (days, trips) => `${days} days logged, ${trips} trips in all.`,
@@ -576,6 +578,8 @@ sv: {
     sourcesBlurb: 'Fria, öppna väderdata. Ingen API-nyckel, inget konto, och dina koordinater skickas inte till någon annan.',
     sourceLicence: 'Data licensierade under CC BY 4.0.',
     updated: (t) => `Hämtat ${t}.`,
+    blendedFrom: 'Sammanvägt från',
+    sourceWeight: (name, pct) => `${name} ${pct} %`,
 
     dataSummary: (days, trips) => `${days} dagar noterade, ${trips} turer totalt.`,
     dataSummaryEmpty: 'Inget noterat än.',

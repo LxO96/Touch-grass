@@ -74,7 +74,7 @@ val webAppFiles = listOf(
     "index.html", "settings.html", "style.css",
     // scoring.js is not just a page asset: the background worker evaluates
     // it directly, so it must be in the APK.
-    "scoring.js", "lang.js", "core.js", "app.js", "settings.js",
+    "scoring.js", "blend.js", "lang.js", "core.js", "app.js", "settings.js",
     "calendar.html", "record.js"
 )
 

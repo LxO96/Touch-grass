@@ -159,6 +159,18 @@ function renderVerdict() {
   if (credit) {
     credit.textContent = T().ui.updated(clockTime(STATE.stale || STATE.fetchedAt || Date.now()));
   }
+
+  const blend = $('blend-sources');
+  if (blend) {
+    const NAMES = { met: 'MET Norway (YR)', smhi: 'SMHI', om: 'Open-Meteo' };
+    const list = data.sources || [];
+    const w = tgWeigh(list);
+    blend.textContent = list.length
+      ? `${T().ui.blendedFrom} ` + list
+          .map((k) => T().ui.sourceWeight(NAMES[k], Math.round(w[k] * 100)))
+          .join(', ')
+      : '';
+  }
 }
 
 /* The page has just worked out the verdict; hand it to the widget so it
