@@ -14,6 +14,23 @@
    the other two split the rest. */
 var TG_WEIGHTS = { met: 0.5, smhi: 0.25, om: 0.25 };
 
+/* A fixed order to walk the sources in. Rhino enumerates object keys in
+   insertion order and V8 enumerates integer-like keys numerically, so any
+   loop whose outcome depends on key order gives the page and the widget
+   different answers from identical data. Everything order-sensitive in
+   this file iterates this array instead. */
+var TG_SOURCE_ORDER = ['met', 'smhi', 'om'];
+
+/* Array.prototype.indexOf exists in both engines, but a plain loop keeps
+   this file's ES5 floor obvious. Missing sorts to the end. */
+function tgIndexOf(list, want) {
+  var i;
+  for (i = 0; i < list.length; i++) {
+    if (list[i] === want) return i;
+  }
+  return list.length;
+}
+
 /* The stated weights, renormalised over the sources that actually
    answered for this hour, so they always sum to 1. */
 function tgWeigh(present) {
@@ -36,10 +53,15 @@ var TG_MEAN_FIELDS = ['feels', 'temp', 'pop', 'precip', 'wind'];
    Each hour: { time, feels, temp, pop, precip, wind, code }
    Returns one array of blended hours, in time order. */
 function tgBlend(bySource) {
+  // In TG_SOURCE_ORDER, not enumeration order: the `sources` list on each
+  // hour, and the `sources` list on the forecast, are derived from this,
+  // and both engines have to name them the same way round.
+  var order = tgOrderedSources(bySource);
   var keys = [];
   var k;
-  for (k in bySource) {
-    if (bySource.hasOwnProperty(k) && bySource[k] && bySource[k].length) keys.push(k);
+  for (var n = 0; n < order.length; n++) {
+    k = order[n];
+    if (bySource[k] && bySource[k].length) keys.push(k);
   }
 
   // Gather every hour any source knows about, keyed by its UTC stamp.
@@ -63,10 +85,7 @@ function tgBlend(bySource) {
   var out = [];
   for (i = 0; i < times.length; i++) {
     var at = byTime[times[i]];
-    var present = [];
-    for (k in at) {
-      if (at.hasOwnProperty(k)) present.push(k);
-    }
+    var present = tgOrderedSources(at);
     var w = tgWeigh(present);
 
     var blended = { time: times[i], sources: present };
@@ -87,7 +106,19 @@ function tgBlend(bySource) {
 
 /* Codes cannot be averaged — the mean of fog and thunder is nothing.
    So they vote, weighted. A tie goes to the heaviest single source
-   behind a code, which keeps the outcome independent of key order.
+   behind a code; a tie that survives even that goes to the higher WMO
+   number, which is also the rougher sky.
+
+   Every loop here walks TG_SOURCE_ORDER rather than `for…in`, and that
+   is load-bearing rather than tidiness. V8 enumerates integer-like keys
+   in ascending numeric order and Rhino enumerates them in insertion
+   order, so a for…in over the tally lets the two engines pick different
+   winners from the same data. That is reachable in ordinary running:
+   with MET timed out the other two renormalise to 0.5/0.5, and
+   {smhi:95, om:0} tied on weight and on heaviest source gave the page
+   "clear sky" and the widget a thunderstorm. The page and the widget
+   share this file precisely so they cannot disagree; enumeration order
+   has to be ours, not the engine's.
 
    Deliberately no safety override: a thunderstorm carried by a
    minority of the weight loses, and tgIsRisky therefore never sees
@@ -96,27 +127,58 @@ function tgBlend(bySource) {
 function tgVoteCode(at, w) {
   var tally = {};
   var heaviest = {};
-  var k, code;
+  var codes = [];        // in fixed source order, first appearance only
+  var order = tgOrderedSources(at);
+  var i, k, code, weight;
 
-  for (k in at) {
-    if (!at.hasOwnProperty(k)) continue;
+  for (i = 0; i < order.length; i++) {
+    k = order[i];
+    if (!at[k]) continue;
     code = at[k].code;
     if (typeof code !== 'number') continue;
-    tally[code] = (tally[code] || 0) + w[k];
-    if (!heaviest[code] || w[k] > heaviest[code]) heaviest[code] = w[k];
+    weight = tgNum(w[k], 0);
+    if (tally[code] === undefined) {
+      tally[code] = 0;
+      heaviest[code] = 0;
+      codes.push(code);
+    }
+    tally[code] += weight;
+    if (weight > heaviest[code]) heaviest[code] = weight;
   }
 
   var best = null;
-  for (k in tally) {
-    if (!tally.hasOwnProperty(k)) continue;
-    code = parseInt(k, 10);
+  for (i = 0; i < codes.length; i++) {
+    code = codes[i];
     if (best === null ||
         tally[code] > tally[best] ||
-        (tally[code] === tally[best] && heaviest[code] > heaviest[best])) {
+        (tally[code] === tally[best] && heaviest[code] > heaviest[best]) ||
+        (tally[code] === tally[best] && heaviest[code] === heaviest[best] &&
+         code > best)) {
       best = code;
     }
   }
-  return best === null ? 0 : best;
+  // Nobody offered a number. "Clear sky" is the worst thing to invent out
+  // of an unknown, so this says overcast, as the normalisers already do.
+  return best === null ? 3 : best;
+}
+
+/* The sources of one hour, in TG_SOURCE_ORDER, with anything unexpected
+   appended in sorted order so the walk stays total and still ordered. */
+function tgOrderedSources(at) {
+  var out = [];
+  var extra = [];
+  var k, i;
+  for (i = 0; i < TG_SOURCE_ORDER.length; i++) {
+    if (at.hasOwnProperty(TG_SOURCE_ORDER[i])) out.push(TG_SOURCE_ORDER[i]);
+  }
+  for (k in at) {
+    if (at.hasOwnProperty(k) && tgIndexOf(TG_SOURCE_ORDER, k) === TG_SOURCE_ORDER.length) {
+      extra.push(k);
+    }
+  }
+  extra.sort();
+  for (i = 0; i < extra.length; i++) out.push(extra[i]);
+  return out;
 }
 
 /* Australian BOM apparent temperature.
@@ -375,10 +437,7 @@ function tgForecast(raw) {
   var ahead = rows.slice(1, 13);
   for (i = 0; i < ahead.length; i++) ahead[i].hoursFromNow = i + 1;
 
-  var names = [];
-  for (i in seen) {
-    if (seen.hasOwnProperty(i)) names.push(i);
-  }
+  var names = tgOrderedSources(seen);
 
   return { now: now, ahead: ahead, sunsetMin: spine.daylight.sunsetMin,
            sources: names };

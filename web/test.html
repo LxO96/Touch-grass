@@ -970,6 +970,16 @@ check('a blended hour names the sources behind it', (() => {
   return out[0].sources.sort().join(',');
 })(), 'met,om');
 
+check('a blended hour names its sources in a fixed order', (() => {
+  // Not sorted here: the list has to come out the same whichever order
+  // the services answered in, or the two engines produce different JSON
+  // from the same bytes and the cross-runtime check has nothing to bite on.
+  const t = '2026-09-08T21:00:00Z';
+  const a = tgBlend({ om: [hr(t)], smhi: [hr(t)], met: [hr(t)] })[0].sources.join(',');
+  const b = tgBlend({ met: [hr(t)], om: [hr(t)], smhi: [hr(t)] })[0].sources.join(',');
+  return a + ' / ' + b;
+})(), 'met,smhi,om / met,smhi,om');
+
 check('blended hours come back in time order', (() => {
   const out = tgBlend({
     om: [hr('2026-09-08T23:00:00Z'), hr('2026-09-08T21:00:00Z'),
@@ -1014,6 +1024,56 @@ check('a tied vote is broken by the heaviest single source', (() => {
 
 check('a lone source supplies its own code',
   tgBlend({ smhi: [hr('2026-09-08T21:00:00Z', { code: 45 })] })[0].code, 45);
+
+/* Determinism across engines. With MET absent — a timeout, a 429, met.no
+   down — SMHI and Open-Meteo renormalise to 0.5/0.5, so two disagreeing
+   codes tie on total weight AND on heaviest single source. A for…in over
+   the tally then hands the winner to the engine: V8 walks integer-like
+   keys numerically and Rhino walks them in insertion order, so the page
+   and the widget rendered opposite skies from the same bytes. */
+
+check('a dead-tied vote goes to the rougher sky, not to whichever key came first', (() => {
+  const out = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  });
+  return out[0].code;
+})(), 95);
+
+check('a dead-tied vote does not depend on the order the sources arrived', (() => {
+  const a = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })]
+  })[0].code;
+  const b = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: 0 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 95 })]
+  })[0].code;
+  return a === b && a === 95;
+})(), true);
+
+check('a dead tie between two mild codes still settles the same way', (() => {
+  // Nothing thundery about it: the rule is total, not a storm special case.
+  const a = tgBlend({
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })],
+    om:   [hr('2026-09-08T21:00:00Z', { code: 45 })]
+  })[0].code;
+  const b = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: 45 })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 3 })]
+  })[0].code;
+  return a + ',' + b;
+})(), '45,45');
+
+check('no numeric code anywhere means overcast, not clear sky', (() => {
+  // "Clear" is the worst thing to invent out of an unknown: it takes no
+  // penalty and tgIsRisky never sees it.
+  const out = tgBlend({
+    om:   [hr('2026-09-08T21:00:00Z', { code: null })],
+    smhi: [hr('2026-09-08T21:00:00Z', { code: 'thunder' })]
+  });
+  return out[0].code;
+})(), 3);
 
 // The spec decision, pinned so it cannot change by accident:
 // there is no safety override on the vote. Dangerous code listed first to ensure

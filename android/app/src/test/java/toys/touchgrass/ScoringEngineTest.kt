@@ -1,5 +1,6 @@
 package toys.touchgrass
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -7,6 +8,8 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.mozilla.javascript.Context as RhinoContext
+import org.mozilla.javascript.ScriptableObject
 import java.io.File
 
 /**
@@ -31,7 +34,7 @@ class ScoringEngineTest {
         val blend = File(blendPath)
         assertTrue("scoring.js not found at $scoringPath", scoring.exists())
         assertTrue("blend.js not found at $blendPath", blend.exists())
-        Scoring.init { scoring.readText() + blend.readText() }
+        Scoring.init { Scoring.join(scoring.readText(), blend.readText()) }
     }
 
     private fun fixtures(): List<String> =
@@ -111,26 +114,186 @@ class ScoringEngineTest {
         assertTrue(Scoring.score(lovely, Scoring.Dials()) > Scoring.score(awful, Scoring.Dials()))
     }
 
+    /* ---------------- the cross-runtime invariant ---------------- */
+
+    /**
+     * blend.js exists in one copy so the page and the home-screen widget
+     * cannot disagree. That was assumed rather than checked: the old
+     * version of this test asserted a source count, the presence of
+     * `isDay`, an hour and a sunset — every one of which a blend that
+     * disagreed with the browser on every reading and every weather code
+     * would have passed. It did disagree. `for…in` over an integer-keyed
+     * tally enumerates numerically under V8 and in insertion order under
+     * Rhino, so a tied code vote picked a different winner in each engine,
+     * and with MET absent (a timeout, a 429, met.no down) that tie is on
+     * the ordinary degraded path.
+     *
+     * So: the whole document, field by field, against what real V8 produced
+     * from these same committed fixtures — with object keys sorted on both
+     * sides first, since key order is exactly the thing the two engines are
+     * allowed to disagree on. expected-blend.json is written by
+     * `node web/make-blend-expectation.js` — regenerate it with that, never
+     * by pasting in what Rhino said.
+     */
+    private fun expected(name: String): JSONObject {
+        val all = JSONObject(File("../web/expected-blend.json").readText())
+        return all.getJSONObject(name)
+    }
+
+    /**
+     * Recursively sorts object keys (arrays keep their order — only object
+     * property enumeration differs between V8 and Rhino) so the comparison
+     * tests the *data*, not the serialisation. Comparing raw JSON text was
+     * exactly the bug: V8 and Rhino enumerate integer-like object keys in
+     * different orders, so two documents that agree on every field produce
+     * different strings and a plain string-equals fails on formatting that
+     * has nothing to do with correctness.
+     */
+    private fun canonicalize(value: Any?): Any? = when (value) {
+        is JSONObject -> {
+            val sorted = JSONObject()
+            value.keys().asSequence().sorted().forEach { k -> sorted.put(k, canonicalize(value.get(k))) }
+            sorted
+        }
+        is JSONArray -> {
+            val arr = JSONArray()
+            for (i in 0 until value.length()) arr.put(canonicalize(value.get(i)))
+            arr
+        }
+        else -> value
+    }
+
+    private fun canonicalJson(value: JSONObject): String =
+        (canonicalize(value) as JSONObject).toString(2)
+
+    private fun canonicalJson(json: String): String = canonicalJson(JSONObject(json))
+
     @Test
-    fun `blends the same way the browser does`() {
-        val om = File("../web/fixtures-om.json").readText()
-        val smhi = File("../web/fixtures-smhi.json").readText()
-
-        val out = Scoring.blend(om, null, smhi)
+    fun `Rhino blends all three sources exactly as the browser does`() {
+        val out = Scoring.blend(
+            File("../web/fixtures-om.json").readText(),
+            File("../web/fixtures-met.json").readText(),
+            File("../web/fixtures-smhi.json").readText()
+        )
         assertNotNull(out)
+        assertEquals(canonicalJson(expected("allThree")), canonicalJson(out!!))
+    }
 
+    @Test
+    fun `Rhino blends without MET exactly as the browser does`() {
+        // The degraded path, and the one that used to diverge: with MET
+        // gone the other two renormalise to 0.5/0.5, so 22:00Z — SMHI's
+        // light rain against Open-Meteo's rain — ties on total weight and
+        // on heaviest source, and the winner came down to key order.
+        val out = Scoring.blend(
+            File("../web/fixtures-om.json").readText(),
+            null,
+            File("../web/fixtures-smhi.json").readText()
+        )
+        assertNotNull(out)
+        assertEquals(canonicalJson(expected("metMissing")), canonicalJson(out!!))
+    }
+
+    @Test
+    fun `the forecast is anchored to the current hour, not to local midnight`() {
+        // Open-Meteo's hourly block starts at local midnight; the fixture's
+        // first row is local 19:00 and current.time is 23:00. Taking row
+        // zero would report 19:00 as "now" and aim the chart at hours that
+        // have already been.
+        val out = Scoring.blend(
+            File("../web/fixtures-om.json").readText(),
+            null,
+            File("../web/fixtures-smhi.json").readText()
+        )
         val json = JSONObject(out!!)
-        assertEquals(2, json.getJSONArray("sources").length())
+        assertEquals(23, json.getJSONObject("now").getInt("hour"))
+        assertEquals("2026-09-08T21:00:00Z", json.getJSONObject("now").getString("time"))
 
-        // Open-Meteo alone supplies daylight, so every hour must carry it.
-        val now = json.getJSONObject("now")
-        assertTrue(now.has("isDay"))
-        assertEquals(23, now.getInt("hour"))       // 21:00Z is 23:00 local
+        val ahead = json.getJSONArray("ahead")
+        for (i in 0 until ahead.length()) {
+            val t = ahead.getJSONObject(i).getString("time")
+            assertTrue("$t precedes the current hour", t >= "2026-09-08T21:00:00Z")
+        }
         assertEquals(19 * 60 + 41, json.getInt("sunsetMin"))
     }
 
     @Test
     fun `a blend with nothing in it is null`() {
         assertNull(Scoring.blend(null, null, null))
+    }
+
+    @Test
+    fun `the shared files are joined so a trailing comment cannot eat the next`() {
+        // They used to be concatenated with nothing between them, which
+        // worked only because scoring.js happens to end in a newline.
+        val cx = RhinoContext.enter()
+        try {
+            cx.optimizationLevel = -1
+            val s = cx.initSafeStandardObjects()
+            cx.evaluateString(
+                s,
+                Scoring.join("var a = 1; // a trailing comment", "var b = 2;"),
+                "joined", 1, null
+            )
+            assertEquals(2.0, RhinoContext.toNumber(ScriptableObject.getProperty(s, "b")), 0.0)
+        } finally {
+            RhinoContext.exit()
+        }
+    }
+
+    /* ---------------- Weather's nullable contract ---------------- */
+
+    private fun bodies(om: String?, met: String?, smhi: String?) =
+        { _: Double, _: Double -> Triple(om, met, smhi) }
+
+    private fun fixtureBodies() = bodies(
+        File("../web/fixtures-om.json").readText(),
+        File("../web/fixtures-met.json").readText(),
+        File("../web/fixtures-smhi.json").readText()
+    )
+
+    @Test
+    fun `a failed refresh falls back to a forecast that is still recent`() {
+        Weather.forget()
+        val t0 = 1_000_000_000L
+        val first = Weather.fetch(59.329, 18.069, t0, fixtureBodies())
+        assertNotNull(first)
+
+        // Past the 45-minute reuse window, so it really does try to refresh;
+        // nothing answers. A forecast an hour old beats no forecast at all,
+        // which is the same policy web/app.js's MAX_STALE_MS states.
+        val stale = Weather.fetch(59.329, 18.069, t0 + 60 * 60 * 1000L, bodies(null, null, null))
+        assertEquals(first, stale)
+
+        // Past six hours it is no longer worth showing.
+        assertNull(Weather.fetch(59.329, 18.069, t0 + 7 * 60 * 60 * 1000L, bodies(null, null, null)))
+    }
+
+    @Test
+    fun `a cached forecast is not reused for a different place`() {
+        Weather.forget()
+        val t0 = 2_000_000_000L
+        assertNotNull(Weather.fetch(59.329, 18.069, t0, fixtureBodies()))
+        assertNull(Weather.fetch(57.708, 11.974, t0 + 60_000L, bodies(null, null, null)))
+    }
+
+    @Test
+    fun `a 200 carrying an HTML error page returns null instead of throwing`() {
+        Weather.forget()
+        val html = "<!doctype html><html><body>Sign in to the network</body></html>"
+        // Weather.fetch's contract is null on any failure. Scoring.call has
+        // no try of its own, so without a guard this travels out of
+        // CheckWorker.doWork and turns a retry into a silent failure.
+        assertNull(Weather.fetch(59.329, 18.069, 3_000_000_000L, bodies(html, null, null)))
+    }
+
+    @Test
+    fun `an Open-Meteo payload missing is_day degrades instead of throwing`() {
+        Weather.forget()
+        val om = JSONObject(File("../web/fixtures-om.json").readText())
+        om.getJSONObject("hourly").remove("is_day")
+        val f = Weather.fetch(59.329, 18.069, 4_000_000_000L, bodies(om.toString(), null, null))
+        assertNotNull(f)
+        assertEquals(23, f!!.now.hour)
     }
 }
