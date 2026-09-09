@@ -233,7 +233,15 @@ function tgNormaliseSmhi(d) {
 /* MET Norway's symbol stems onto WMO. The _day / _night /
    _polartwilight suffix is dropped: daylight comes from Open-Meteo,
    not from a symbol name. MET draws no hail distinction, so every
-   thunder variant is plain WMO 95. */
+   thunder variant is plain WMO 95.
+
+   Two of MET's published IDs carry a long-standing typo — a double s in
+   "lightssleetshowersandthunder" and "lightssnowshowersandthunder" — and
+   those are the strings the API really sends. They are the mapping that
+   matters; the corrected spellings are kept as harmless aliases. Getting
+   this wrong is not cosmetic: MET carries half the weight, so an unmapped
+   thundersnow hour has its heaviest voter reporting plain overcast, the
+   storm is voted away, and tgIsRisky never fires. */
 var TG_MET_WMO = {
   clearsky: 0, fair: 1, partlycloudy: 2, cloudy: 3, fog: 45,
 
@@ -250,10 +258,14 @@ var TG_MET_WMO = {
   lightrainshowersandthunder: 95, rainshowersandthunder: 95,
   heavyrainshowersandthunder: 95,
   lightsleetandthunder: 95, sleetandthunder: 95, heavysleetandthunder: 95,
-  lightsleetshowersandthunder: 95, sleetshowersandthunder: 95,
+  lightssleetshowersandthunder: 95,   // MET's own spelling, typo and all
+  lightsleetshowersandthunder: 95,    // the corrected spelling, as an alias
+  sleetshowersandthunder: 95,
   heavysleetshowersandthunder: 95,
   lightsnowandthunder: 95, snowandthunder: 95, heavysnowandthunder: 95,
-  lightsnowshowersandthunder: 95, snowshowersandthunder: 95,
+  lightssnowshowersandthunder: 95,    // MET's own spelling, typo and all
+  lightsnowshowersandthunder: 95,     // the corrected spelling, as an alias
+  snowshowersandthunder: 95,
   heavysnowshowersandthunder: 95
 };
 

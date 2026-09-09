@@ -21,6 +21,7 @@ window.addEventListener('error', (e) => {
 <script src="scoring.js"></script>
 <script src="blend.js"></script>
 <script src="fixtures.js"></script>
+<script src="met-legend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script>
@@ -1161,6 +1162,62 @@ check('every MET symbol maps to a code the app can describe', (() => {
   const sky = T().sky;
   return Object.keys(TG_MET_WMO).every((k) => typeof sky[TG_MET_WMO[k]] === 'string');
 })(), true);
+
+/* The two tests above iterate TG_MET_WMO, so they can only confirm what
+   is already in the table and structurally cannot notice a symbol MET
+   sends that we never mapped. met-legend.js is MET's own published list,
+   so these compare the table against the vocabulary rather than itself.
+   Membership is the assertion that matters: tgMetCode's default is a
+   describable code, so "maps to something lang.js knows" is satisfied by
+   a missing key too. */
+
+check("MET's published vocabulary is a decent size", MET_LEGEND_SYMBOLS.length, 41);
+
+check('every symbol MET publishes has its own entry in the table', (() => {
+  const missing = MET_LEGEND_SYMBOLS.filter((s) => TG_MET_WMO[s] === undefined);
+  return missing.join(',');
+})(), '');
+
+check('every symbol MET publishes maps to a code the app can describe', (() => {
+  const sky = T().sky;
+  return MET_LEGEND_SYMBOLS.every((s) => typeof sky[TG_MET_WMO[s]] === 'string');
+})(), true);
+
+check('every thunder symbol MET publishes votes as a thunderstorm', (() => {
+  const wrong = MET_LEGEND_SYMBOLS
+    .filter((s) => s.indexOf('thunder') >= 0)
+    .filter((s) => tgMetCode(s + '_night') !== 95);
+  return wrong.join(',');
+})(), '');
+
+check("MET's own double-s spellings are the ones the API sends", (() => {
+  // A long-standing typo in MET's IDs. Unmapped, thundersnow arrives as
+  // a grey lid from the source carrying half the weight, and the storm
+  // is voted away before tgIsRisky can see it.
+  return tgMetCode('lightssleetshowersandthunder_day') === 95 &&
+         tgMetCode('lightssnowshowersandthunder_day') === 95;
+})(), true);
+
+check('a thundersnow hour survives the blend when MET reports it', (() => {
+  const t = '2026-09-08T21:00:00Z';
+  const row = {
+    time: t,
+    data: {
+      instant: { details: { air_temperature: -1, wind_speed: 4 } },
+      next_1_hours: {
+        summary: { symbol_code: 'lightssnowshowersandthunder_night' },
+        details: { precipitation_amount: 0.6, probability_of_precipitation: 80 }
+      }
+    }
+  };
+  const met = { properties: { timeseries: [row] } };
+  const out = tgBlend({
+    met: tgNormaliseMet(met),
+    smhi: [hr(t, { code: 3 })],
+    om: [hr(t, { code: 3 })]
+  });
+  return out[0].code;
+})(), 95);
 
 check('the day suffix is stripped before mapping',
   tgNormaliseMet(FIXTURE_MET)[0].code, 2);
