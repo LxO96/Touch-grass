@@ -280,8 +280,19 @@ function tgDecide(now, ahead, visits, dials) {
     return out;
   }
 
-  // Small hours with no dawn in sight: still never "go out anyways".
-  if (best && tgIsDeepNight(now.hour)) {
+  /* Small hours with no dawn in sight. Three shapes, and they get
+     different answers:
+
+       - hours still left of today: name the least-bad one;
+       - a forecast that only reaches into tomorrow (23:00, the day spent):
+         nothing today is left to name, so the answer is now — hence the
+         fall-through past this branch to 'anyways';
+       - no forecast at all: nothing to point at either way, and 'waitNight'
+         with a null target is what lang.js has purpose-written copy for
+         ("get some sleep, then go out at the first reasonable hour").
+
+     So: a candidate, or an empty `ahead`. */
+  if (tgIsDeepNight(now.hour) && (best !== null || !scored.length)) {
     out.state = 'waitNight';
     out.target = best;
     return out;

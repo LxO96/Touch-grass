@@ -232,6 +232,26 @@ check('the small hours still name an hour to go',
     return d.state === 'waitNight' && !!d.target;
   })(), true);
 
+// Two different silences. At 23:00 the forecast is full but every hour in
+// it belongs to tomorrow, so the day is spent and the answer is "now"
+// (pinned below, under "the day you owe is today"). With no forecast at
+// all there is nothing to say "now" about either — and lang.js carries
+// copy written for exactly that, in both languages.
+check('deep night with no forecast at all still waits for the night',
+  (() => {
+    const spec = Object.assign({ isDay: false }, WET);
+    const d = tgDecide(at(Object.assign({ hour: 3 }, spec)), [], 0, S);
+    return d.state + ':' + d.target;
+  })(), 'waitNight:null');
+
+check('and it uses the words written for having no hour to name',
+  (() => {
+    const spec = Object.assign({ isDay: false }, WET);
+    return decide(at(Object.assign({ hour: 3 }, spec)), [], 0, S).sub;
+  })(),
+  "It's the middle of the night. Get some sleep, then go out at the first " +
+  "reasonable hour — that's all today asks.");
+
 /* ================= copy ================= */
 
 check('no undefined/NaN in any verdict copy',
