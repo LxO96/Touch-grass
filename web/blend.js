@@ -231,41 +231,78 @@ function tgNormaliseMet(d) {
 
 /* "2026-09-08T23:00" local, plus the offset, as a UTC stamp matching
    what SMHI and MET publish. Built by hand rather than through a
-   local Date so a visitor's own timezone can never leak into it. */
+   local Date so a visitor's own timezone can never leak into it.
+
+   Null for anything that is not a stamp. A 200 carrying an HTML error
+   page or a captive portal's login screen must degrade to "no forecast",
+   never to a throw: on Android this runs inside a worker whose contract
+   is null on failure, and a throw there costs the retry. */
 function tgLocalToUtc(local, offsetSeconds) {
+  if (typeof local !== 'string' || local.length < 16) return null;
   var y = parseInt(local.slice(0, 4), 10);
   var mo = parseInt(local.slice(5, 7), 10);
   var d = parseInt(local.slice(8, 10), 10);
   var h = parseInt(local.slice(11, 13), 10);
   var mi = parseInt(local.slice(14, 16), 10);
-  var t = new Date(Date.UTC(y, mo - 1, d, h, mi) - (offsetSeconds * 1000));
+  if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(h) || isNaN(mi)) return null;
+  var t = new Date(Date.UTC(y, mo - 1, d, h, mi) - (tgNum(offsetSeconds, 0) * 1000));
   function p(n) { return (n < 10 ? '0' : '') + n; }
   return t.getUTCFullYear() + '-' + p(t.getUTCMonth() + 1) + '-' +
          p(t.getUTCDate()) + 'T' + p(t.getUTCHours()) + ':' +
          p(t.getUTCMinutes()) + ':00Z';
 }
 
+/* One column of Open-Meteo's hourly block. Missing columns come back as
+   an empty array rather than undefined, so a payload that is short a
+   field yields a fallback value instead of a TypeError. */
+function tgColumn(H, name) {
+  var v = H[name];
+  return v && typeof v.length === 'number' ? v : [];
+}
+
 function tgNormaliseOm(d) {
   var res = { hours: [],
-              daylight: { byTime: {}, localHourByTime: {}, sunsetMin: null } };
-  if (!d || !d.hourly || !d.hourly.time) return res;
+              daylight: { byTime: {}, localHourByTime: {},
+                          sunsetMin: null, nowUtc: null } };
+  if (!d || !d.hourly || !d.hourly.time || !d.hourly.time.length) return res;
 
   var off = tgNum(d.utc_offset_seconds, 0);
   var H = d.hourly;
+  var times = tgColumn(H, 'time');
+  var temps = tgColumn(H, 'temperature_2m');
+  var feels = tgColumn(H, 'apparent_temperature');
+  var pops = tgColumn(H, 'precipitation_probability');
+  var precips = tgColumn(H, 'precipitation');
+  var winds = tgColumn(H, 'wind_speed_10m');
+  var codes = tgColumn(H, 'weather_code');
+  var isDays = tgColumn(H, 'is_day');
   var i;
-  for (i = 0; i < H.time.length; i++) {
-    var utc = tgLocalToUtc(H.time[i], off);
+
+  /* The hour the user is actually standing in. Open-Meteo's hourly block
+     starts at local midnight, so its first row is "now" only at midnight;
+     current.time is the only thing in the payload that says which hour is
+     the present one. It carries real minutes ("...T08:45"), and the hourly
+     rows are all on the local hour, so it is truncated to the hour it
+     falls inside — 08:45 belongs to the 08:00 row, not the 09:00 one.
+     Recorded here and honoured in tgForecast. */
+  var cur = d.current && typeof d.current.time === 'string' &&
+            d.current.time.length >= 13 ? d.current.time.slice(0, 13) + ':00' : null;
+  res.daylight.nowUtc = cur === null ? null : tgLocalToUtc(cur, off);
+
+  for (i = 0; i < times.length; i++) {
+    var utc = tgLocalToUtc(times[i], off);
+    if (utc === null) continue;
     res.hours.push({
       time: utc,
-      temp: tgNum(H.temperature_2m[i], 16),
-      feels: tgNum(H.apparent_temperature[i], 16),
-      pop: tgNum(H.precipitation_probability[i], 0),
-      precip: tgNum(H.precipitation[i], 0),
-      wind: tgNum(H.wind_speed_10m[i], 0),
-      code: tgNum(H.weather_code[i], 3)
+      temp: tgNum(temps[i], 16),
+      feels: tgNum(feels[i], 16),
+      pop: tgNum(pops[i], 0),
+      precip: tgNum(precips[i], 0),
+      wind: tgNum(winds[i], 0),
+      code: tgNum(codes[i], 3)
     });
-    res.daylight.byTime[utc] = H.is_day[i] === 1;
-    res.daylight.localHourByTime[utc] = parseInt(H.time[i].slice(11, 13), 10);
+    res.daylight.byTime[utc] = tgNum(isDays[i], 0) === 1;
+    res.daylight.localHourByTime[utc] = parseInt(times[i].slice(11, 13), 10);
   }
 
   var sunset = d.daily && d.daily.sunset && d.daily.sunset[0];
@@ -304,11 +341,21 @@ function tgForecast(raw) {
   var blended = tgBlend(bySource);
   if (!blended.length) return null;
 
+  /* Open-Meteo's hourly array runs from local midnight, so blended[0] is
+     the first hour of the day, not the hour it is now. Anything before
+     current.time is already over: at a quarter to nine it would make
+     "now" midnight, score it as the small hours in the dark, and point
+     the whole twelve-hour chart at hours that have been and gone. These
+     stamps are all fixed-width UTC, so a string compare is an ordering
+     compare, and it stays Rhino-safe. */
+  var nowUtc = spine.daylight.nowUtc;
+
   var seen = {};
   var rows = [];
   var i, m;
   for (i = 0; i < blended.length; i++) {
     var b = blended[i];
+    if (nowUtc && b.time < nowUtc) continue;
     var isDay = spine.daylight.byTime[b.time];
     var localHour = spine.daylight.localHourByTime[b.time];
     if (isDay === undefined || localHour === undefined) continue;
