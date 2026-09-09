@@ -88,9 +88,10 @@ Everything lives in `localStorage` on your own device — the year, the streaks,
 the settings. Not cookies: cookies cap out around 4 KB and ride along with every
 request to a server, and there is no server here.
 
-Nothing is sent anywhere except the coordinates needed to ask
-[Open-Meteo](https://open-meteo.com/) what the weather is doing. There is no
-account, no analytics, and no second data provider in the loop.
+Nothing is sent anywhere except the coordinates needed to ask three weather
+services — [MET Norway](https://www.met.no/), [SMHI](https://www.smhi.se/) and
+[Open-Meteo](https://open-meteo.com/) — what the weather is doing, blended
+into one forecast. There is no account and no analytics.
 
 Clearing site data wipes your year, so **Settings → Your data** offers
 *Share / email it*, which hands the whole log over as a `.json` file through
@@ -128,11 +129,13 @@ barely-different hour.
 ### One formula, two runtimes
 
 The Android background check can't reach the WebView, so it can't run the page's
-JavaScript directly. Rather than port the formula to Kotlin and let two copies
-drift apart, the worker evaluates **that same `web/scoring.js`** through
-[Rhino](https://github.com/mozilla/rhino), a plain-Java JavaScript engine. The
-page, the notifications and the widget can never disagree about whether it's
-nice out.
+JavaScript directly. Rather than port the formula (or the blend) to Kotlin and
+let copies drift apart, the worker evaluates **`web/scoring.js` and
+`web/blend.js`** through [Rhino](https://github.com/mozilla/rhino), a plain-Java
+JavaScript engine. Kotlin's job is three HTTP GETs — MET Norway, SMHI,
+Open-Meteo — handed to Rhino as raw response bodies; it never parses a
+forecast payload. The page, the notifications and the widget can never
+disagree about whether it's nice out.
 
 `tgDecide()` and `tgTrends()` deliberately return states and directions, never
 words — which is what lets the page write a paragraph in your language while the
@@ -172,8 +175,8 @@ source of truth.
 ## Tests
 
 ```
-cd web && python -m http.server 8000   # then open /test.html    104 assertions
-cd android && gradlew test                                     #   5 assertions
+cd web && python -m http.server 8000   # then open /test.html    201 assertions
+cd android && gradlew test                                     #   7 assertions
 ```
 
 The web suite covers the verdicts, the house rule (swept across temperatures,
@@ -191,6 +194,7 @@ browser. If you change the formula, regenerate those fixtures.
 web/             the app itself — a static site, no build step
   index.html  calendar.html  settings.html      the three pages
   scoring.js     the score and the decision — shared with Android via Rhino
+  blend.js       merges MET/SMHI/Open-Meteo into one forecast — also shared
   lang.js        every visible string, English and Swedish
   core.js        storage, units, trends, the verdict's wording
   app.js         the Today page     record.js   the year page
@@ -205,8 +209,11 @@ There is no second copy of the site to keep in step.
 
 ## Credits
 
-Weather, sunrise/sunset and the town search: [Open-Meteo](https://open-meteo.com/),
-free and open, licensed CC BY 4.0.
+Weather is blended from three services: [MET Norway](https://www.met.no/)
+(the best model for the Nordics, and the reason it carries half the weight),
+[SMHI](https://www.smhi.se/) and [Open-Meteo](https://open-meteo.com/), which
+also supplies sunrise/sunset and the town search. All free and open;
+Open-Meteo is licensed CC BY 4.0.
 
 The look is a homage to [optical.toys](https://optical.toys/) — the VT323
 typeface, the mustard and slate, and the hard blur-free shadows are borrowed
