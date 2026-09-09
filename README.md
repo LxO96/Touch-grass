@@ -212,8 +212,12 @@ There is no second copy of the site to keep in step.
 Weather is blended from three services: [MET Norway](https://www.met.no/)
 (the best model for the Nordics, and the reason it carries half the weight),
 [SMHI](https://www.smhi.se/) and [Open-Meteo](https://open-meteo.com/), which
-also supplies sunrise/sunset and the town search. All free and open;
-Open-Meteo is licensed CC BY 4.0.
+also supplies sunrise/sunset and the town search. All three require
+attribution, and all three are free and open:
+
+- MET Norway's Locationforecast — NLOD and CC BY 4.0
+- SMHI's open data — CC BY 4.0
+- Open-Meteo — CC BY 4.0
 
 The look is a homage to [optical.toys](https://optical.toys/) — the VT323
 typeface, the mustard and slate, and the hard blur-free shadows are borrowed

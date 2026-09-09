@@ -162,15 +162,23 @@ function renderVerdict() {
 
   const blend = $('blend-sources');
   if (blend) {
-    const NAMES = { met: 'MET Norway (YR)', smhi: 'SMHI', om: 'Open-Meteo' };
-    const list = data.sources || [];
-    const w = tgWeigh(list);
+    // Heaviest first. data.sources arrives in whatever order the hours
+    // happened to name the services, which read as "Open-Meteo 25%, MET
+    // Norway 50%, SMHI 25%" — the least important source announced first.
+    const list = tgCreditOrder(data.sources || []);
+    const w = tgWeigh(data.sources || []);
     blend.textContent = list.length
       ? `${T().ui.blendedFrom} ` + list
-          .map((k) => T().ui.sourceWeight(NAMES[k], Math.round(w[k] * 100)))
+          .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
           .join(', ')
       : '';
   }
+}
+
+/* The blend's own name for a source, from the one credits list. */
+function creditName(key) {
+  for (const c of TG_CREDITS) if (c.key === key) return c.name;
+  return key;
 }
 
 /* The page has just worked out the verdict; hand it to the widget so it

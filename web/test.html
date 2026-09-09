@@ -561,6 +561,19 @@ check('an unknown stored language falls back to a supported one',
     return LANGS_AVAILABLE.some((l) => l.code === c);
   })(), true);
 
+check('the licence line credits every licensor, in both languages', (() => {
+  // "Data licensed CC BY 4.0" named nobody, which is not an attribution.
+  // MET's locationforecast is NLOD / CC BY 4.0; SMHI's open data CC BY 4.0.
+  for (const code of ['en', 'sv']) {
+    const s = TEXT[code].ui.sourceLicence;
+    if (typeof s !== 'string') return code + ' missing';
+    for (const who of ['MET Norway', 'SMHI', 'Open-Meteo', 'NLOD', 'CC BY 4.0']) {
+      if (s.indexOf(who) < 0) return code + ' omits ' + who;
+    }
+  }
+  return 'clean';
+})(), 'clean');
+
 check('every verdict state has wording in both languages',
   (() => {
     const states = ['go','goAgain','wait','waitAgain','waitDark','waitNight',
@@ -928,6 +941,42 @@ check('weights always sum to one', (() => {
 check('one source on its own carries all the weight', tgWeigh(['om']).om, 1);
 
 check('no sources yields no weights', Object.keys(tgWeigh([])).length, 0);
+
+/* Attribution. MET Norway and SMHI both require it by licence, so the
+   credit has to name all three whether or not a forecast has landed —
+   crediting Open-Meteo alone was a false statement on first paint, on
+   the stale-cache path and on the failure path. */
+
+check('every source in the blend is credited', (() => {
+  const missing = Object.keys(TG_WEIGHTS)
+    .filter((k) => !TG_CREDITS.some((c) => c.key === k));
+  return missing.join(',');
+})(), '');
+
+check('every credit carries a name, a link and a licence', (() => {
+  return TG_CREDITS.every((c) =>
+    typeof c.name === 'string' && c.name.length > 1 &&
+    /^https:\/\//.test(c.url) && /CC BY|NLOD/.test(c.licence));
+})(), true);
+
+check('the credit names MET and SMHI, not Open-Meteo alone', (() => {
+  return TG_CREDITS.map((c) => c.name).join(' | ');
+})(), 'MET Norway (YR) | SMHI | Open-Meteo');
+
+check('the breakdown reads heaviest source first', (() => {
+  // data.sources arrives in whatever order the hours happened to name
+  // the services, which put the 25% ones in front of the 50% one.
+  return tgCreditOrder(['om', 'met', 'smhi']).join(',');
+})(), 'met,smhi,om');
+
+check('the breakdown order does not depend on the order it was given', (() => {
+  const orders = [['om', 'met', 'smhi'], ['smhi', 'om', 'met'],
+                  ['met', 'om', 'smhi'], ['om', 'smhi', 'met']];
+  return orders.map((o) => tgCreditOrder(o).join(',')).join(' / ');
+})(), 'met,smhi,om / met,smhi,om / met,smhi,om / met,smhi,om');
+
+check('a partial blend still reads heaviest first',
+  tgCreditOrder(['om', 'met']).join(','), 'met,om');
 
 const hr = (time, o) => Object.assign(
   { time: time, feels: 10, temp: 10, pop: 0, precip: 0, wind: 0, code: 0 }, o || {});

@@ -21,6 +21,39 @@ var TG_WEIGHTS = { met: 0.5, smhi: 0.25, om: 0.25 };
    this file iterates this array instead. */
 var TG_SOURCE_ORDER = ['met', 'smhi', 'om'];
 
+/* Attribution is licence-bound — MET Norway and SMHI both require it —
+   and it has to stand on every path, including before any forecast has
+   arrived. Kept here beside the weights so the page's static credit and
+   its per-forecast breakdown read one list. */
+var TG_CREDITS = [
+  { key: 'met', name: 'MET Norway (YR)', url: 'https://www.met.no/',
+    licence: 'NLOD / CC BY 4.0' },
+  { key: 'smhi', name: 'SMHI', url: 'https://www.smhi.se/',
+    licence: 'CC BY 4.0' },
+  { key: 'om', name: 'Open-Meteo', url: 'https://open-meteo.com/',
+    licence: 'CC BY 4.0' }
+];
+
+/* The credited sources, heaviest first, so the breakdown reads
+   "MET Norway 50%, SMHI 25%, Open-Meteo 25%" rather than in whatever
+   order the sources happened to answer. Equal weights fall back to
+   TG_SOURCE_ORDER, again so both runtimes agree. */
+function tgCreditOrder(present) {
+  var out = [];
+  var i;
+  for (i = 0; i < present.length; i++) out.push(present[i]);
+  out.sort(function (a, b) {
+    var wa = TG_WEIGHTS[a] || 0;
+    var wb = TG_WEIGHTS[b] || 0;
+    if (wa !== wb) return wb - wa;
+    var ia = tgIndexOf(TG_SOURCE_ORDER, a);
+    var ib = tgIndexOf(TG_SOURCE_ORDER, b);
+    if (ia !== ib) return ia - ib;
+    return a < b ? -1 : (a > b ? 1 : 0);
+  });
+  return out;
+}
+
 /* Array.prototype.indexOf exists in both engines, but a plain loop keeps
    this file's ES5 floor obvious. Missing sorts to the end. */
 function tgIndexOf(list, want) {
