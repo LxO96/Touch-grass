@@ -3,6 +3,7 @@ package toys.touchgrass
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
+import java.util.Locale
 
 /**
  * Three GETs — Open-Meteo, MET Norway, SMHI — handed to the web app's own
@@ -60,7 +61,7 @@ object Weather {
         /** The three response bodies, in the order blend.js wants them. */
         get: (Double, Double) -> Triple<String?, String?, String?>
     ): Forecast? {
-        val key = "%.3f,%.3f".format(lat, lon)
+        val key = cacheKey(lat, lon)
         val c = cache
         // Three services per background check is a lot. A check that lands
         // early, or a widget redraw off-schedule, reuses what we have.
@@ -105,6 +106,19 @@ object Weather {
         cache = Cache("", 0L, null)
     }
 
+    /**
+     * Which place the cached forecast is for.
+     *
+     * `Locale.US` for the same reason [smhiUrl] needs it: the default
+     * locale decides the decimal separator, and a key of `59,329,18,069`
+     * is not the key `59.329,18.069` that the next call would build if the
+     * user changed language in between. Only ever compared for equality,
+     * so nothing breaks today — but it is the identical defect, and a trap
+     * left lying in the open is one somebody eventually stands on.
+     */
+    internal fun cacheKey(lat: Double, lon: Double): String =
+        String.format(Locale.US, "%.3f,%.3f", lat, lon)
+
     private fun openMeteoUrl(lat: Double, lon: Double) =
         "https://api.open-meteo.com/v1/forecast" +
             "?latitude=$lat&longitude=$lon" +
@@ -119,9 +133,17 @@ object Weather {
         "https://api.met.no/weatherapi/locationforecast/2.0/complete" +
             "?lat=$lat&lon=$lon"
 
-    private fun smhiUrl(lat: Double, lon: Double) =
+    /**
+     * `Locale.US`, and it is not cosmetic: `String.format` without one
+     * formats through the *device's* locale, so a Swedish phone asks SMHI
+     * for `lon/18,0690` and is answered 404. The page builds this same URL
+     * with `toFixed(4)`, which never does that — which would leave the
+     * page blending three sources and the widget two, on precisely the
+     * devices SMHI was added for.
+     */
+    internal fun smhiUrl(lat: Double, lon: Double) =
         "https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1" +
-            "/geotype/point/lon/%.4f/lat/%.4f/data.json".format(lon, lat)
+            String.format(Locale.US, "/geotype/point/lon/%.4f/lat/%.4f/data.json", lon, lat)
 
     private fun body(url: String, ua: String? = null): String? = try {
         (URL(url).openConnection() as HttpURLConnection).run {

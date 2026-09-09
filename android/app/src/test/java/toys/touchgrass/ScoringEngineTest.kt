@@ -11,6 +11,7 @@ import org.junit.Test
 import org.mozilla.javascript.Context as RhinoContext
 import org.mozilla.javascript.ScriptableObject
 import java.io.File
+import java.util.Locale
 
 /**
  * The app and the web pages now run the *same* scoring.js, so there is no
@@ -285,6 +286,51 @@ class ScoringEngineTest {
         // no try of its own, so without a guard this travels out of
         // CheckWorker.doWork and turns a retry into a silent failure.
         assertNull(Weather.fetch(59.329, 18.069, 3_000_000_000L, bodies(html, null, null)))
+    }
+
+    /* ---------------- the device's language is not ours --------------- */
+
+    /**
+     * Runs `body` as if the phone were set to `tag`, and puts the default
+     * back whatever happens — a leaked default locale would quietly change
+     * the meaning of every other test in the JVM.
+     */
+    private fun <T> asDeviceLocale(tag: String, body: () -> T): T {
+        val previous = Locale.getDefault()
+        Locale.setDefault(Locale.forLanguageTag(tag))
+        return try {
+            body()
+        } finally {
+            Locale.setDefault(previous)
+        }
+    }
+
+    @Test
+    fun `SMHI's URL carries decimal points on a Swedish device`() {
+        // sv-SE writes 18,0690. SMHI answers that with a 404, Weather maps
+        // the 404 to null, and the widget silently blends two sources where
+        // the page blends three — on exactly the devices SMHI is for.
+        val url = asDeviceLocale("sv-SE") { Weather.smhiUrl(59.3290, 18.0690) }
+        assertTrue("locale-formatted coordinates in $url", !url.contains(","))
+        assertTrue(url, url.endsWith("/geotype/point/lon/18.0690/lat/59.3290/data.json"))
+    }
+
+    @Test
+    fun `the forecast cache key carries decimal points on a Swedish device`() {
+        assertEquals(
+            "59.329,18.069",
+            asDeviceLocale("sv-SE") { Weather.cacheKey(59.3290, 18.0690) }
+        )
+    }
+
+    @Test
+    fun `changing the device language does not change the cache key`() {
+        // The consequence that matters: two calls in different locales must
+        // still name the same cached forecast.
+        assertEquals(
+            asDeviceLocale("en-US") { Weather.cacheKey(59.3290, 18.0690) },
+            asDeviceLocale("sv-SE") { Weather.cacheKey(59.3290, 18.0690) }
+        )
     }
 
     @Test
