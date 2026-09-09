@@ -3,7 +3,8 @@
    Needs core.js loaded first.
    ========================================================== */
 
-const STATE = { place: null, data: null, stale: null, fetchedAt: null };
+const STATE = { place: null, data: null, stale: null, fetchedAt: null,
+                loading: false };
 
 /* ----------------------------------------------------------
    A phone loses signal in ways a laptop doesn't, and opening
@@ -29,9 +30,7 @@ function loadCachedForecast(place) {
     if (!c || !c.data || !c.data.now) return null;
     if (Date.now() - c.at > MAX_STALE_MS) return null;
     // Don't answer for Gothenburg using yesterday's Lisbon.
-    if (place && c.place &&
-        (Math.abs(c.place.lat - place.lat) > 0.4 ||
-         Math.abs(c.place.lon - place.lon) > 0.4)) return null;
+    if (place && c.place && !nearPlace(c.place, place.lat, place.lon)) return null;
     return c;
   } catch { return null; }
 }
@@ -399,6 +398,7 @@ function fail(msg) {
 
 async function load(place) {
   STATE.place = place;
+  STATE.loading = true;
   $('place').textContent = place.label;
   try {
     STATE.data = await getWeather(place.lat, place.lon);
@@ -417,21 +417,26 @@ async function load(place) {
     } else {
       fail(e.message + '.');
     }
+  } finally {
+    STATE.loading = false;
   }
 }
 
-function askGeo() {
+/* `force` is the difference between the page quietly refining the place it
+   already has on open, and you pressing the locate button — pressing it
+   should always go and look, even if nothing has moved. */
+function askGeo(force) {
   if (!navigator.geolocation) {
     if (!STATE.data) fail(T().ui.noGeo);
     return;
   }
-  tryGeo(0);
+  tryGeo(0, undefined, force);
 }
 
 /* Attempt n of nextGeoAttempt's plan. The card keeps saying "Locating…"
    between attempts: a failure banner at eight seconds, while the GPS is
    still being asked, would be a lie we then have to take back. */
-function tryGeo(n, prevCode) {
+function tryGeo(n, prevCode, force) {
   const opts = nextGeoAttempt(n, prevCode);
   if (!opts) {
     if (!STATE.data) fail(geoFailMessage(prevCode));
@@ -446,14 +451,23 @@ function tryGeo(n, prevCode) {
       // Only names picked from the search count — an auto-generated
       // coordinate label is not worth preserving.
       const saved = loadPlace();
-      const keepName = saved && saved.named
-        && Math.abs(saved.lat - lat) < 0.4
-        && Math.abs(saved.lon - lon) < 0.4;
+      const keepName = saved && saved.named && nearPlace(saved, lat, lon);
+
+      // The fix landed in the box the page is already showing, and that
+      // answer is still good: move the pin onto the real coordinates and
+      // spend nothing. See geoNeedsReload for why this is worth doing.
+      if (!force && !geoNeedsReload(STATE, lat, lon, Date.now())) {
+        STATE.place = { lat, lon,
+                        label: STATE.place.label, named: !!STATE.place.named };
+        savePlace(STATE.place);
+        return;
+      }
+
       load(keepName
         ? { lat, lon, label: saved.label, named: true }
         : { lat, lon, label: coordLabel(lat, lon) });
     },
-    (err) => tryGeo(n + 1, err.code),
+    (err) => tryGeo(n + 1, err.code, force),
     opts
   );
 }
@@ -474,7 +488,7 @@ $('btn-undo').addEventListener('click', () => {
   renderToday(visitsToday());
 });
 
-$('btn-geo').addEventListener('click', askGeo);
+$('btn-geo').addEventListener('click', () => askGeo(true));
 
 $('search-form').addEventListener('submit', async (e) => {
   e.preventDefault();

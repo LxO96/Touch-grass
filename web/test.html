@@ -845,6 +845,49 @@ check('both location failures are translated', (() => {
 check('hintPara is available to any page that loads core',
   typeof hintPara, 'function');
 
+/* ---- and whether a fix is worth three more requests each to
+        Open-Meteo, MET and SMHI ---- */
+
+const T0 = 1000000;
+const geoState = (o) => Object.assign(
+  { place: { lat: 59.33, lon: 18.07, label: 'Stockholm', named: true },
+    data: { now: {} }, stale: null, fetchedAt: T0, loading: false }, o);
+
+// The case that costs six requests per open: the page loads the
+// remembered place, and the ten-minute-old cached fix lands moments later
+// a few hundred metres away, before the first fetch has even returned.
+check('a cached fix arriving mid-load does not start a second one',
+  geoNeedsReload(
+    geoState({ data: null, fetchedAt: null, loading: true }),
+    59.34, 18.08, T0 + 200), false);
+
+check('a cached fix in the same box does not refetch a fresh forecast',
+  geoNeedsReload(geoState({}), 59.34, 18.08, T0 + 60 * 1000), false);
+
+check('a genuinely different place still reloads',
+  geoNeedsReload(geoState({}), 57.71, 11.97, T0 + 60 * 1000), true);
+
+check('a forecast old enough to be worth replacing reloads',
+  geoNeedsReload(geoState({}), 59.33, 18.07, T0 + GEO_REUSE_MS), true);
+
+// A stale forecast is on screen only because the last fetch failed, so a
+// fresh fix is exactly the moment to try the network again.
+check('a stale forecast reloads even in the same place',
+  geoNeedsReload(geoState({ stale: T0 - 1000 }), 59.33, 18.07, T0 + 60 * 1000), true);
+
+check('nothing loaded at all reloads',
+  geoNeedsReload(geoState({ place: null, data: null }), 59.33, 18.07, T0), true);
+
+// One box, shared by the cached forecast, the kept place name and this
+// decision — so all three agree about what counts as the same place.
+check('a fix well inside the box is here',
+  nearPlace({ lat: 59.33, lon: 18.07 }, 59.33 + SAME_PLACE_DEG / 2, 18.07), true);
+
+check('a fix outside the box is somewhere else',
+  nearPlace({ lat: 59.33, lon: 18.07 }, 59.33 + SAME_PLACE_DEG * 2, 18.07), false);
+
+check('nothing at all is not near anywhere', nearPlace(null, 59.33, 18.07), false);
+
 /* ================= units ================= */
 
 check('celsius is left alone', fmtTemp(20, { temp: 'c', wind: 'kmh' }), '20\u00b0C');

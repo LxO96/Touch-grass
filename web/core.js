@@ -572,6 +572,42 @@ function geoFailMessage(code) {
   return code === GEO_DENIED ? T().ui.geoDenied : T().ui.geoNoFix;
 }
 
+/* Close enough that one forecast answers for both. The same box the
+   cached forecast is reused across, and the same one a chosen place name
+   survives — one number, so those three cannot drift apart. */
+const SAME_PLACE_DEG = 0.4;
+
+function nearPlace(p, lat, lon) {
+  return !!p && Math.abs(p.lat - lat) < SAME_PLACE_DEG
+             && Math.abs(p.lon - lon) < SAME_PLACE_DEG;
+}
+
+/* How long a forecast on screen stands before a fresh fix is worth
+   spending three more requests on. The 45 minutes Weather.kt reuses its
+   cache for, deliberately: the same policy on both sides. */
+const GEO_REUSE_MS = 45 * 60 * 1000;
+
+/* Whether a position fix should trigger a real reload.
+
+   Every open asks for a location on top of the remembered place it has
+   already started loading, and the first attempt accepts a ten-minute-old
+   cached fix — so on a phone in daily use it answers instantly with
+   coordinates inside the box already being loaded. Reloading there is
+   three more HTTP requests each to Open-Meteo, MET and SMHI for an answer
+   that is on its way or already on the screen, and MET Norway's terms ask
+   clients not to repeat requests they do not need.
+
+   What must still reload: a genuinely different place, a forecast old
+   enough to be worth replacing, and a stale one — that one is showing
+   only because the last fetch failed, so a fresh chance at the network is
+   exactly what it wants. */
+function geoNeedsReload(state, lat, lon, nowMs) {
+  if (!state || !nearPlace(state.place, lat, lon)) return true;
+  if (state.loading) return false;    // the same box is already on its way
+  if (!state.data || state.stale) return true;
+  return nowMs - state.fetchedAt >= GEO_REUSE_MS;
+}
+
 /* ---------- remembered place ---------- */
 
 function savePlace(p) {
