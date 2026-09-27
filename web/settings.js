@@ -72,7 +72,8 @@ function buildDials() {
     cold: [L.dialCold, L.dialColdLow, L.dialColdHigh, L.dialColdBlurb],
     heat: [L.dialHeat, L.dialHeatLow, L.dialHeatHigh, L.dialHeatBlurb],
     wind: [L.dialWind, L.dialWindLow, L.dialWindHigh, L.dialWindBlurb],
-    dark: [L.dialDark, L.dialDarkLow, L.dialDarkHigh, L.dialDarkBlurb]
+    dark: [L.dialDark, L.dialDarkLow, L.dialDarkHigh, L.dialDarkBlurb],
+    twilight: [L.dialTwilight, L.dialTwilightLow, L.dialTwilightHigh, L.dialTwilightBlurb]
   };
 
   for (const d of DIALS) {
@@ -127,8 +128,8 @@ function buildDials() {
 }
 
 // Turn 0–2 into words, because "1.3" means nothing on its own.
-function dialWord(v) {
-  const w = T().ui.dialWords;
+function dialWord(v, key) {
+  const w = key === 'twilight' ? T().ui.dialTwilightWords : T().ui.dialWords;
   if (v < 0.15) return w[0];
   if (v < 0.6)  return w[1];
   if (v < 0.9)  return w[2];
@@ -140,7 +141,7 @@ function dialWord(v) {
 
 function paintDial(key) {
   const v = SETTINGS[key];
-  $('val-' + key).textContent = dialWord(v);
+  $('val-' + key).textContent = dialWord(v, key);
   $('dial-' + key).classList.toggle('off', v < 0.15);
 }
 

@@ -50,6 +50,7 @@ object Prefs {
             putFloat("heat", s.optDouble("heat", 1.0).toFloat())
             putFloat("windDial", s.optDouble("wind", 1.0).toFloat())
             putFloat("dark", s.optDouble("dark", 1.0).toFloat())
+            putFloat("twilight", s.optDouble("twilight", 1.0).toFloat())
             putInt("bar", s.optInt("bar", 60))
 
             putInt("visitsToday", o.optInt("visitsToday", 0))
@@ -70,6 +71,7 @@ object Prefs {
         heat = sp(c).getFloat("heat", 1f).toDouble(),
         wind = sp(c).getFloat("windDial", 1f).toDouble(),
         dark = sp(c).getFloat("dark", 1f).toDouble(),
+        twilight = sp(c).getFloat("twilight", 1f).toDouble(),
         bar = sp(c).getInt("bar", 60)
     )
 

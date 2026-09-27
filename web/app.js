@@ -305,7 +305,7 @@ function renderWhy(cols, s) {
     const a = document.createElement('span');
     a.className = 'why-amt';
     // A real minus sign, not a hyphen: this is a sum, and it is read aloud.
-    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : (amount > 0 && cls !== 'total' && name !== L.startedAt ? `+${amount}` : String(amount));
     r.append(n, f, a);
     return r;
   };

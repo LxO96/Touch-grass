@@ -91,7 +91,16 @@ function tgExplainHour(h, dials) {
   if (w > 22) take('wind', Math.min(28, (w - 22) * 1.3) * wind, false);
 
   // --- dark is a big deal, and 3am is a bigger one
-  if (!h.isDay) take('dark', 38 * dark, false);
+  // Twilight is not the dead of night. The dusk-and-dawn dial runs from
+  // 0 (it is just more darkness) through 1 (no dark penalty — the default)
+  // to 2 (the best light of the day, worth a bonus on top).
+  if (!h.isDay && (h.twilight === 'dusk' || h.twilight === 'dawn')) {
+    var tw = tgClamp(tgNum(dials.twilight, 1), 0, 2);
+    take('dark', 38 * dark * Math.max(0, 1 - tw), false);
+    if (tw > 1) take(h.twilight, -10 * (tw - 1), false);
+  } else if (!h.isDay) {
+    take('dark', 38 * dark, false);
+  }
   if (tgIsDeepNight(h.hour)) take('night', 25 * dark, false);
 
   // --- codes that deserve their own penalty
@@ -127,11 +136,13 @@ function tgIsRisky(h) {
    Same formula — it goes through tgScoreHour like everyone else.
    ---------------------------------------------------------- */
 function tgScoreArgs(hour, feels, pop, precip, wind, isDay, code,
-                     dRain, dCold, dHeat, dWind, dDark) {
+                     dRain, dCold, dHeat, dWind, dDark, twilight, dTwilight) {
   return tgScoreHour(
     { hour: hour, feels: feels, pop: pop, precip: precip,
-      wind: wind, isDay: !!isDay, code: code },
-    { rain: dRain, cold: dCold, heat: dHeat, wind: dWind, dark: dDark }
+      wind: wind, isDay: !!isDay, code: code,
+      twilight: twilight ? String(twilight) : null },
+    { rain: dRain, cold: dCold, heat: dHeat, wind: dWind, dark: dDark,
+      twilight: dTwilight }
   );
 }
 

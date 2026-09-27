@@ -25,6 +25,7 @@ object Scoring {
         val heat: Double = 1.0,
         val wind: Double = 1.0,
         val dark: Double = 1.0,
+        val twilight: Double = 1.0,
         val bar: Int = 60
     )
 
@@ -36,6 +37,8 @@ object Scoring {
         val wind: Double,
         val isDay: Boolean,
         val code: Int,
+        /** "dusk", "dawn" or null — marked by blend.js from Open-Meteo's daylight. */
+        val twilight: String? = null,
         val hoursFromNow: Int = 0,
         val label: String = ""
     )
@@ -111,7 +114,7 @@ object Scoring {
         "tgScoreArgs",
         arrayOf(
             h.hour, h.feels, h.pop, h.precip, h.wind, h.isDay, h.code,
-            d.rain, d.cold, d.heat, d.wind, d.dark
+            d.rain, d.cold, d.heat, d.wind, d.dark, h.twilight, d.twilight
         )
     ) { RhinoContext.toNumber(it).toInt() }
 
@@ -207,11 +210,12 @@ object Scoring {
 
     private fun dialsJson(d: Dials): String =
         """{"rain":${d.rain},"cold":${d.cold},"heat":${d.heat},""" +
-        """"wind":${d.wind},"dark":${d.dark},"bar":${d.bar}}"""
+        """"wind":${d.wind},"dark":${d.dark},"twilight":${d.twilight},"bar":${d.bar}}"""
 
     private fun hourJson(h: Hour): String =
         """{"hour":${h.hour},"feels":${h.feels},"pop":${h.pop},"precip":${h.precip},""" +
         """"wind":${h.wind},"isDay":${h.isDay},"code":${h.code},""" +
+        """"twilight":${h.twilight?.let { quote(it) } ?: "null"},""" +
         """"hoursFromNow":${h.hoursFromNow},"label":${quote(h.label)}}"""
 
     private fun quote(s: String): String = org.json.JSONObject.quote(s)

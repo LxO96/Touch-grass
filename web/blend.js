@@ -344,6 +344,21 @@ function tgNormaliseMet(d) {
    page or a captive portal's login screen must degrade to "no forecast",
    never to a throw: on Android this runs inside a worker whose contract
    is null on failure, and a throw there costs the retry. */
+/* A night hour right next to a day hour is twilight — the half-light
+   either side of the sun, which is some of the nicest light of the day
+   and should not score like 2am. The first dark hour after a light one is
+   dusk; the last dark hour before a light one is dawn. Read from the
+   spine's daylight, which covers the whole grid, so the hours either side
+   are known even at the ends of the twelve on show. */
+function tgTwilight(byTime, stamp, isDay) {
+  if (isDay) return null;
+  var before = tgLocalToUtc(stamp.slice(0, 16), 3600);    // an hour earlier
+  var after = tgLocalToUtc(stamp.slice(0, 16), -3600);    // an hour later
+  if (before && byTime[before] === true) return 'dusk';
+  if (after && byTime[after] === true) return 'dawn';
+  return null;
+}
+
 function tgLocalToUtc(local, offsetSeconds) {
   if (typeof local !== 'string' || local.length < 16) return null;
   var y = parseInt(local.slice(0, 4), 10);
@@ -472,7 +487,8 @@ function tgForecast(raw) {
     rows.push({
       time: b.time, hour: localHour, feels: b.feels, temp: b.temp,
       pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
-      isDay: isDay, hoursFromNow: 0, contributors: b.sources
+      isDay: isDay, twilight: tgTwilight(spine.daylight.byTime, b.time, isDay),
+      hoursFromNow: 0, contributors: b.sources
     });
   }
   if (!rows.length) return null;

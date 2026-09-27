@@ -26,6 +26,7 @@ const DEFAULTS = {
   heat: 1,    // everything above comfortable
   wind: 1,    // gusts
   dark: 1,    // darkness, and the small hours
+  twilight: 1, // dusk and dawn: 0 just dark, 1 no dark penalty, 2 a bonus
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -40,7 +41,10 @@ const DIALS = [
   { key: 'wind', label: 'Wind', low: "Doesn't bother me",
     high: 'Hate the wind', blurb: 'How much a stiff breeze puts you off.' },
   { key: 'dark', label: 'Darkness', low: 'Happy in the dark',
-    high: 'Daylight only', blurb: 'How much darkness — and 3am especially — counts against.' }
+    high: 'Daylight only', blurb: 'How much darkness — and 3am especially — counts against.' },
+  // The one dial that runs the other way: right means you like it more.
+  { key: 'twilight', label: 'Dusk & dawn', low: 'Just more dark',
+    high: 'The best light', blurb: 'The half-light hour after sunset and before sunrise.' }
 ];
 
 function getSettings() {

@@ -171,6 +171,7 @@ object Weather {
             wind = o.getDouble("wind"),
             isDay = o.getBoolean("isDay"),
             code = o.getInt("code"),
+            twilight = if (o.isNull("twilight")) null else o.optString("twilight").ifEmpty { null },
             hoursFromNow = k,
             label = label(o.getInt("hour"))
         )

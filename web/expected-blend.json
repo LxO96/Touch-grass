@@ -10,6 +10,7 @@
       "wind": 9.45,
       "code": 2,
       "isDay": false,
+      "twilight": null,
       "hoursFromNow": 0,
       "contributors": [
         "met",
@@ -28,6 +29,7 @@
         "wind": 9.46,
         "code": 2,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 1,
         "contributors": [
           "met",
@@ -45,6 +47,7 @@
         "wind": 9.18,
         "code": 61,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -61,6 +64,7 @@
         "wind": 8.6,
         "code": 61,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -76,6 +80,7 @@
         "wind": 8.2,
         "code": 3,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -91,6 +96,7 @@
         "wind": 7.9,
         "code": 3,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"
@@ -115,6 +121,7 @@
       "wind": 8.82,
       "code": 61,
       "isDay": false,
+      "twilight": null,
       "hoursFromNow": 0,
       "contributors": [
         "smhi",
@@ -132,6 +139,7 @@
         "wind": 9.56,
         "code": 63,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 1,
         "contributors": [
           "smhi",
@@ -148,6 +156,7 @@
         "wind": 9.18,
         "code": 61,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -164,6 +173,7 @@
         "wind": 8.6,
         "code": 61,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -179,6 +189,7 @@
         "wind": 8.2,
         "code": 3,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -194,6 +205,7 @@
         "wind": 7.9,
         "code": 3,
         "isDay": false,
+        "twilight": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"

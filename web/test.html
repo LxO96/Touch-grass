@@ -1651,6 +1651,90 @@ check('danger names the first safe hour, not the finest one', (() => {
   return decide(stormNow, ahead, 0, S).decision.target.hour;
 })(), 6);
 
+/* ================= dusk and dawn ================= */
+
+// The half-light hour either side of the sun is some of the nicest light
+// of the day, and it used to score exactly like 2am. A night hour next to
+// a day hour is twilight: the first dark hour after sunset is dusk, the
+// last dark hour before sunrise is dawn.
+
+// Stockholm, UTC+2: light at 18 and 19, dark 20 through 05, light again at 06.
+const TWILIGHT_OM = (() => {
+  const times = [], isDay = [];
+  const light = { 18: 1, 19: 1, 6: 1, 7: 1 };
+  for (let i = 0; i < 14; i++) {
+    const h = (18 + i) % 24;
+    const day = i < 6 ? '2026-09-27' : '2026-09-28';
+    times.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    isDay.push(light[h] || 0);
+  }
+  const n = times.length, fill = (v) => Array.from({ length: n }, () => v);
+  return {
+    utc_offset_seconds: 7200,
+    current: { time: '2026-09-27T18:00' },
+    hourly: { time: times, is_day: isDay,
+      temperature_2m: fill(14), apparent_temperature: fill(13),
+      precipitation_probability: fill(10), precipitation: fill(0),
+      weather_code: fill(2), wind_speed_10m: fill(8) },
+    daily: { sunset: ['2026-09-27T19:26'] }
+  };
+})();
+
+const twilightOf = (hour) => {
+  const f = tgForecast({ om: TWILIGHT_OM });
+  const row = [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+  return row ? row.twilight : 'missing';
+};
+
+check('the first dark hour after sunset is dusk', twilightOf(20), 'dusk');
+check('the last dark hour before sunrise is dawn', twilightOf(5), 'dawn');
+check('the middle of the night is neither', twilightOf(23), null);
+check('a daylight hour is not twilight', twilightOf(19), null);
+check('the first light hour after dawn is not twilight', twilightOf(6), null);
+
+check('the default dusk dial is 1', DEFAULTS.twilight, 1);
+
+// An hour at 20:00: dark, not the small hours, a little rain chance so a
+// bonus has room to show under the 100 cap.
+const duskHour = (o) => at(Object.assign(
+  { hour: 20, isDay: false, twilight: 'dusk', pop: 40 }, o || {}));
+const withDial = (v) => Object.assign({}, S, { twilight: v });
+
+check('at the default dial, dusk is not punished as dark',
+  scoreHour(duskHour(), S), scoreHour(duskHour({ isDay: true, twilight: null }), S));
+
+check('at dial 0, dusk counts as full night',
+  scoreHour(duskHour(), withDial(0)), scoreHour(duskHour({ twilight: null }), withDial(0)));
+
+check('at dial 2, dusk earns a bonus on top',
+  scoreHour(duskHour(), withDial(2)) - scoreHour(duskHour(), withDial(1)), 10);
+
+check('the dial leaves an ordinary dark hour alone',
+  scoreHour(duskHour({ twilight: null }), withDial(2)),
+  scoreHour(duskHour({ twilight: null }), withDial(0)));
+
+check('a 3am dawn still carries the small-hours penalty', (() => {
+  const e = tgExplainHour(at({ hour: 3, isDay: false, twilight: 'dawn' }), S);
+  return e.parts.some((p) => p.key === 'night');
+})(), true);
+
+check('the dusk bonus shows as its own row', (() => {
+  const e = tgExplainHour(duskHour(), withDial(2));
+  const row = e.parts.filter((p) => p.key === 'dusk')[0];
+  return row ? row.amount : 'no row';
+})(), 10);
+
+check('dusk and dawn are named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const f = T().ui.factors;
+    return !!f.dusk && !!f.dawn;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

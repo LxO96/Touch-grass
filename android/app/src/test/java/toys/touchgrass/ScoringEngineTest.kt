@@ -384,4 +384,35 @@ class ScoringEngineTest {
         assertNotNull(f)
         assertEquals(23, f!!.now.hour)
     }
+
+    // Rhino must see the twilight flag and the dial, or the widget would
+    // punish dusk as night while the page does not.
+    @Test
+    fun `dusk is not punished as dark through Rhino at the default dial`() {
+        val dusk = Scoring.Hour(hour = 20, feels = 13.0, pop = 40.0, precip = 0.0,
+            wind = 8.0, isDay = false, code = 2, twilight = "dusk")
+        val light = dusk.copy(isDay = true, twilight = null)
+        assertEquals(Scoring.score(light, Scoring.Dials()), Scoring.score(dusk, Scoring.Dials()))
+    }
+
+    @Test
+    fun `the dusk dial reaches Rhino`() {
+        val dusk = Scoring.Hour(hour = 20, feels = 13.0, pop = 40.0, precip = 0.0,
+            wind = 8.0, isDay = false, code = 2, twilight = "dusk")
+        assertEquals(10,
+            Scoring.score(dusk, Scoring.Dials(twilight = 2.0)) -
+                Scoring.score(dusk, Scoring.Dials(twilight = 1.0)))
+    }
+
+    @Test
+    fun `the verdict sees twilight too`() {
+        // tgDecide gets hours as JSON; a dusk hour must arrive as dusk.
+        val now = Scoring.Hour(hour = 19, feels = 13.0, pop = 90.0, precip = 2.0,
+            wind = 8.0, isDay = true, code = 63)
+        // Comfortable, dry, calm: 100 unless it is wrongly scored as night (62).
+        val dusk = Scoring.Hour(hour = 20, feels = 20.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0, twilight = "dusk", hoursFromNow = 1, label = "8pm")
+        val v = Scoring.decide(now, listOf(dusk), 0, Scoring.Dials())
+        assertEquals(100, v.targetScore)
+    }
 }
