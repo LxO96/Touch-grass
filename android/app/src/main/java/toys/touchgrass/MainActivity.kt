@@ -207,6 +207,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        AppState.inForeground = true
+        Prefs.markOpened(this, System.currentTimeMillis())
+        Notifier.clearAll(this)
+        Scheduler.sync(this)
+    }
+
+    override fun onPause() {
+        AppState.inForeground = false
+        super.onPause()
+    }
+
     private fun configure(settings: WebSettings) {
         settings.javaScriptEnabled = true
         // localStorage is the entire data model: the year log and the dials.

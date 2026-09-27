@@ -53,5 +53,6 @@ object Scheduler {
     /** Called whenever the page changes what it wants. */
     fun sync(c: Context) {
         if (Prefs.remindersOn(c) || Prefs.watchOn(c)) schedule(c) else cancel(c)
+        NudgeAlarm.arm(c)
     }
 }

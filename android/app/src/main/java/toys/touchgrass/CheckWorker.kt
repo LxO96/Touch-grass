@@ -2,6 +2,7 @@ package toys.touchgrass
 
 import android.content.Context
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import java.util.Calendar
 import java.util.Locale
@@ -69,7 +70,18 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         }
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun getForegroundInfo() =
+        ForegroundInfo(Notifier.ID_CHECKING, Notifier.checking(applicationContext))
+
+    // Whatever this run decided, point the nudge alarm at the next one owed.
+    override suspend fun doWork(): Result =
+        try {
+            check()
+        } finally {
+            NudgeAlarm.arm(applicationContext)
+        }
+
+    private suspend fun check(): Result {
         val c = applicationContext
         Scoring.init {
             Scoring.join(
@@ -121,12 +133,22 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         if (wantNudge) {
             val due = Prefs.reminderDueMinutes(c, forecast?.sunsetMinutes)
             if (nowMinutes >= due) {
-                Notifier.nudge(c, nudgeText(c, forecast, nowHour))
+                // On screen now, or opened since it came due: the app has
+                // already said it. Count it as done rather than repeat it.
+                val nowMs = System.currentTimeMillis()
+                val dueAt = NudgeTiming.dueAt(nowMs, due, 0, java.util.TimeZone.getDefault())
+                val answered = AppState.inForeground ||
+                    NudgeTiming.nudgeAnswered(Prefs.lastOpened(c), dueAt, nowMs)
+                if (!answered) Notifier.nudge(c, nudgeText(c, forecast, nowHour))
                 Prefs.markNudged(c, today)
             }
         }
 
-        if (watchNow && forecast != null) checkForAWindow(c, today, nowHour, forecast)
+        // Someone looking at the verdict, or who just was, does not need a
+        // notification repeating it.
+        val quiet = AppState.inForeground ||
+            NudgeTiming.alertQuiet(Prefs.lastOpened(c), System.currentTimeMillis())
+        if (watchNow && forecast != null && !quiet) checkForAWindow(c, today, nowHour, forecast)
 
         return Result.success()
     }

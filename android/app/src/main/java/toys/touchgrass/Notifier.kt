@@ -20,6 +20,7 @@ object Notifier {
 
     private const val ID_NUDGE = 1001
     private const val ID_WINDOW = 1002
+    const val ID_CHECKING = 1003
 
     fun ensureChannels(c: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -93,6 +94,26 @@ object Notifier {
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
         )
+    }
+
+    /** Opening the app answers whatever these were saying. */
+    fun clearAll(c: Context) {
+        NotificationManagerCompat.from(c).cancel(ID_NUDGE)
+        NotificationManagerCompat.from(c).cancel(ID_WINDOW)
+    }
+
+    /**
+     * Before Android 12, expedited work runs as a foreground service and
+     * needs a notification for the few seconds it takes. Quiet and brief.
+     */
+    fun checking(c: Context): Notification {
+        ensureChannels(c)
+        return NotificationCompat.Builder(c, CHANNEL_NUDGE)
+            .setSmallIcon(R.drawable.ic_stat_grass)
+            .setContentTitle("Checking the weather")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .build()
     }
 
     fun window(c: Context, title: String, text: String, loud: Boolean) {

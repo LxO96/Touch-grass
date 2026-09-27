@@ -58,6 +58,11 @@
                 android:resource="@xml/widget_info" />
         </receiver>
 
+        <!-- The daily nudge's own alarm. -->
+        <receiver
+            android:name=".NudgeReceiver"
+            android:exported="false" />
+
         <receiver
             android:name=".BootReceiver"
             android:exported="true">
