@@ -599,6 +599,24 @@ footer {
 
 .dial { margin: 20px 0 24px; }
 
+/* ---------- kinds of weather ---------- */
+
+.sky-row { margin: 14px 0 18px; }
+.sky-name { display: block; font-size: 24px; margin-bottom: 6px; }
+.sky-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+.sky-opt {
+  font: inherit;
+  font-size: 16px;
+  padding: 4px 10px;
+  background: #fff;
+  color: var(--ink);
+  border: 2px solid var(--ink);
+  border-radius: 0;
+  cursor: pointer;
+}
+.sky-opt[aria-checked="true"] { background: var(--ink); color: #fff; }
+.sky-opt:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
 .dial-head {
   display: flex;
   justify-content: space-between;

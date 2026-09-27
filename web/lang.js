@@ -160,6 +160,7 @@ en: {
       night: 'The small hours',
       dusk: 'Dusk',
       dawn: 'Dawn',
+      sky: 'Sky',
       code: 'The weather itself'
     },
     footer: 'go outside',
@@ -208,6 +209,14 @@ en: {
     dialWindBlurb: 'How much a stiff breeze puts you off.',
     dialDarkBlurb: 'How much darkness — and 3am especially — counts against.',
     dialTwilightBlurb: 'The half-light hour after sunset and before sunrise. This one runs the other way: slide right if you love it.',
+    skiesTitle: 'Kinds of weather',
+    skiesBlurb: "How much you like each kind of sky, on top of getting wet — the rain dial still handles that. Thunder isn't here: it always counts, for safety.",
+    skyKinds: {
+      clear: 'Clear sky', mostlyClear: 'Mostly clear', partly: 'Partly cloudy',
+      overcast: 'Overcast', fog: 'Fog', drizzle: 'Drizzle',
+      rain: 'Rain & showers', snow: 'Snow', freezing: 'Freezing rain & sleet'
+    },
+    skyRatings: ['Love it', 'Like it', 'Fine', 'Not keen', 'Hate it'],
     dialTwilightWords: ['just more dark', 'mostly dark', 'a bit dark', 'fine light', 'nice light', 'lovely', 'the best light'],
     dialWords: ["don't care", 'barely', 'a bit', 'normal', 'quite a lot', 'a lot', 'deal-breaker'],
 
@@ -473,6 +482,7 @@ sv: {
       night: 'Småtimmarna',
       dusk: 'Skymning',
       dawn: 'Gryning',
+      sky: 'Himlen',
       code: 'Själva vädret'
     },
     footer: 'gå ut',
@@ -519,6 +529,14 @@ sv: {
     dialWindBlurb: 'Hur mycket en frisk vind avskräcker dig.',
     dialDarkBlurb: 'Hur mycket mörker — och särskilt kl 3 — drar ner.',
     dialTwilightBlurb: 'Halvljustimmen efter solnedgången och före soluppgången. Den här går åt andra hållet: dra åt höger om du älskar den.',
+    skiesTitle: 'Olika sorters väder',
+    skiesBlurb: 'Hur mycket du gillar varje sorts himmel, utöver att bli blöt — det sköter regnratten fortfarande. Åska finns inte här: den räknas alltid, för säkerhetens skull.',
+    skyKinds: {
+      clear: 'Klart', mostlyClear: 'Mest klart', partly: 'Halvklart',
+      overcast: 'Mulet', fog: 'Dimma', drizzle: 'Duggregn',
+      rain: 'Regn & skurar', snow: 'Snö', freezing: 'Underkylt regn & snöblandat'
+    },
+    skyRatings: ['Älskar', 'Gillar', 'Okej', 'Inte så förtjust', 'Hatar'],
     dialTwilightWords: ['bara mörker', 'mest mörkt', 'lite mörkt', 'fint ljus', 'vackert ljus', 'underbart', 'dagens bästa ljus'],
     dialWords: ['struntar i', 'knappt', 'lite', 'normalt', 'ganska mycket', 'mycket', 'helt avgörande'],
 

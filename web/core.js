@@ -27,6 +27,7 @@ const DEFAULTS = {
   wind: 1,    // gusts
   dark: 1,    // darkness, and the small hours
   twilight: 1, // dusk and dawn: 0 just dark, 1 no dark penalty, 2 a bonus
+  sky: Object.assign({}, TG_SKY_DEFAULTS),  // 0 love it .. 4 hate it, per kind
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -57,8 +58,18 @@ function getSettings() {
     // Keep whatever is stored inside sane bounds.
     for (const d of DIALS) s[d.key] = clamp(s[d.key], 0, 2);
     s.bar = clamp(s.bar, 25, 90);
+    // Each kind of weather keeps a valid stored rating or its default —
+    // tgSkyRating is the one place that decides what "valid" means.
+    s.sky = {};
+    for (const k of TG_SKY_ORDER) s.sky[k] = tgSkyRating(raw.sky, k);
     return s;
-  } catch { return Object.assign({}, DEFAULTS); }
+  } catch { return freshDefaults(); }
+}
+
+/* DEFAULTS holds an object (sky); a shallow copy would let a later edit
+   write through into the defaults themselves. */
+function freshDefaults() {
+  return Object.assign({}, DEFAULTS, { sky: Object.assign({}, DEFAULTS.sky) });
 }
 
 function saveSettings(s) {
@@ -534,6 +545,7 @@ function factorFact(key, h) {
     case 'wind':
       return fmtWind(tgNum(h.wind, 0), u);
     case 'code':
+    case 'sky':
       return skyName(h.code);
     // Dark is dark, and 3am is 3am. Neither needs a number.
     default:

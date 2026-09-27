@@ -26,6 +26,8 @@ object Scoring {
         val wind: Double = 1.0,
         val dark: Double = 1.0,
         val twilight: Double = 1.0,
+        /** Kind of weather to rating, 0 love it .. 4 hate it; missing kinds use scoring.js's defaults. */
+        val sky: Map<String, Int> = emptyMap(),
         val bar: Int = 60
     )
 
@@ -110,12 +112,9 @@ object Scoring {
         }
     }
 
+    // JSON, like decide and trends: the dials now carry an object.
     fun score(h: Hour, d: Dials): Int = call(
-        "tgScoreArgs",
-        arrayOf(
-            h.hour, h.feels, h.pop, h.precip, h.wind, h.isDay, h.code,
-            d.rain, d.cold, d.heat, d.wind, d.dark, h.twilight, d.twilight
-        )
+        "tgScoreJson", arrayOf<Any?>(hourJson(h), dialsJson(d))
     ) { RhinoContext.toNumber(it).toInt() }
 
     fun isRisky(h: Hour): Boolean = call(
@@ -210,7 +209,8 @@ object Scoring {
 
     private fun dialsJson(d: Dials): String =
         """{"rain":${d.rain},"cold":${d.cold},"heat":${d.heat},""" +
-        """"wind":${d.wind},"dark":${d.dark},"twilight":${d.twilight},"bar":${d.bar}}"""
+        """"wind":${d.wind},"dark":${d.dark},"twilight":${d.twilight},"bar":${d.bar},""" +
+        """"sky":${org.json.JSONObject(d.sky as Map<*, *>)}}"""
 
     private fun hourJson(h: Hour): String =
         """{"hour":${h.hour},"feels":${h.feels},"pop":${h.pop},"precip":${h.precip},""" +

@@ -51,6 +51,7 @@ object Prefs {
             putFloat("windDial", s.optDouble("wind", 1.0).toFloat())
             putFloat("dark", s.optDouble("dark", 1.0).toFloat())
             putFloat("twilight", s.optDouble("twilight", 1.0).toFloat())
+            putString("sky", (s.optJSONObject("sky") ?: org.json.JSONObject()).toString())
             putInt("bar", s.optInt("bar", 60))
 
             putInt("visitsToday", o.optInt("visitsToday", 0))
@@ -65,6 +66,14 @@ object Prefs {
         }.apply()
     }
 
+    /** The page's per-kind weather ratings, as stored by [store]. */
+    private fun skyRatings(c: Context): Map<String, Int> = try {
+        val o = org.json.JSONObject(sp(c).getString("sky", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.optInt(it) }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
     fun dials(c: Context) = Scoring.Dials(
         rain = sp(c).getFloat("rain", 1f).toDouble(),
         cold = sp(c).getFloat("cold", 1f).toDouble(),
@@ -72,6 +81,7 @@ object Prefs {
         wind = sp(c).getFloat("windDial", 1f).toDouble(),
         dark = sp(c).getFloat("dark", 1f).toDouble(),
         twilight = sp(c).getFloat("twilight", 1f).toDouble(),
+        sky = skyRatings(c),
         bar = sp(c).getInt("bar", 60)
     )
 

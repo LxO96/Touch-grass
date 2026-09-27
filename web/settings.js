@@ -125,6 +125,50 @@ function buildDials() {
   }
 
   for (const d of DIALS) paintDial(d.key);
+  buildSkies();
+}
+
+/* One row per kind of weather, five choices each. Built with the dials so
+   a language change, a restore or a reset rebuilds both together. */
+function buildSkies() {
+  const host = $('skies');
+  if (!host) return;
+  host.innerHTML = '';
+  const L = T().ui;
+
+  for (const kind of TG_SKY_ORDER) {
+    const row = document.createElement('div');
+    row.className = 'sky-row';
+
+    const name = document.createElement('span');
+    name.className = 'sky-name';
+    name.id = 'sky-name-' + kind;
+    name.textContent = L.skyKinds[kind];
+
+    const opts = document.createElement('div');
+    opts.className = 'sky-opts';
+    opts.setAttribute('role', 'radiogroup');
+    opts.setAttribute('aria-labelledby', name.id);
+
+    L.skyRatings.forEach((word, rating) => {
+      const b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'sky-opt';
+      b.textContent = word;
+      b.setAttribute('role', 'radio');
+      b.setAttribute('aria-checked', String(SETTINGS.sky[kind] === rating));
+      b.addEventListener('click', () => {
+        SETTINGS.sky = Object.assign({}, SETTINGS.sky, { [kind]: rating });
+        saveSettings(SETTINGS);
+        buildSkies();
+        renderPreview();
+      });
+      opts.append(b);
+    });
+
+    row.append(name, opts);
+    host.append(row);
+  }
 }
 
 // Turn 0–2 into words, because "1.3" means nothing on its own.
@@ -532,7 +576,7 @@ function note(msg) {
 /* ---------- reset ---------- */
 
 $('btn-reset').addEventListener('click', () => {
-  SETTINGS = Object.assign({}, DEFAULTS);
+  SETTINGS = freshDefaults();
   saveSettings(SETTINGS);
   buildDials();
   barInput.value = SETTINGS.bar;

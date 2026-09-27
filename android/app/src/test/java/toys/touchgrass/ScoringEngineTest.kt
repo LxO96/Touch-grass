@@ -415,4 +415,15 @@ class ScoringEngineTest {
         val v = Scoring.decide(now, listOf(dusk), 0, Scoring.Dials())
         assertEquals(100, v.targetScore)
     }
+
+    // The ratings must reach Rhino, or the widget scores a grey sky with
+    // the defaults while the page uses yours.
+    @Test
+    fun `sky ratings reach Rhino`() {
+        val grey = Scoring.Hour(hour = 14, feels = 20.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = true, code = 3)
+        assertEquals(90, Scoring.score(grey, Scoring.Dials()))
+        assertEquals(100, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 0))))
+        assertEquals(65, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 4))))
+    }
 }

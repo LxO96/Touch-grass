@@ -1735,6 +1735,84 @@ check('dusk and dawn are named in both languages', (() => {
   return ok;
 })(), true);
 
+/* ================= kinds of weather ================= */
+
+// Clear blue sky and a grey lid used to score identically. Each kind of
+// weather now carries its own rating — Love it, Like it, Fine, Not keen,
+// Hate it: 0, −5, −10, −20, −35 — on top of getting wet, which the rain
+// dial still handles. Thunder is not rateable: it is safety.
+
+// Same hour, dry and calm, only the sky differs.
+const skyHour = (code, o) => at(Object.assign({ code, pop: 0, precip: 0 }, o || {}));
+const skyGap = (code, s) => scoreHour(skyHour(0), s || S) - scoreHour(skyHour(code), s || S);
+const withSky = (sky) => Object.assign({}, S, { sky: Object.assign({}, S.sky, sky) });
+
+check('clear sky costs nothing by default', skyGap(0), 0);
+check('mostly clear costs nothing by default', skyGap(1), 0);
+check('partly cloudy is liked by default: -5', skyGap(2), 5);
+check('overcast is fine by default: -10', skyGap(3), 10);
+check('fog is fine by default: -10', skyGap(45), 10);
+check('drizzle is fine by default: -10', skyGap(53), 10);
+check('rain is not-keen by default: -20', skyGap(63), 20);
+check('showers count as rain', skyGap(81), 20);
+check('snow is liked by default: -5', skyGap(73), 5);
+check('freezing rain is hated by default: -35', skyGap(66), 35);
+
+check('rating overcast as loved makes it as good as clear',
+  skyGap(3, withSky({ overcast: 0 })), 0);
+check('rating clear sky as hated costs 35',
+  scoreHour(skyHour(0, { pop: 0 }), withSky({ clear: 4 })) , 65);
+
+check('thunder is not rateable: it stays -45 whatever the ratings say', (() => {
+  const loveAll = {};
+  TG_SKY_ORDER.forEach((k) => { loveAll[k] = 0; });
+  const e = tgExplainHour(skyHour(95), withSky(loveAll));
+  const row = e.parts.filter((p) => p.key === 'code')[0];
+  return row ? row.amount + ':' + row.fixed : 'no row';
+})(), '-45:true');
+
+check('the rain dial no longer scales the sky rating', (() => {
+  const dry = Object.assign({}, S, { rain: 0 });
+  return scoreHour(skyHour(45), dry);
+})(), 90);
+
+check('the sky rating shows as its own row, named after the sky', (() => {
+  const e = tgExplainHour(skyHour(3), S);
+  const row = e.parts.filter((p) => p.key === 'sky')[0];
+  return row ? row.amount + ':' + factorFact('sky', skyHour(3)) : 'no row';
+})(), '-10:' + skyName(3));
+
+check('every kind of weather the app can describe is rateable, bar thunder', (() => {
+  const missing = Object.keys(T().sky)
+    .filter((k) => k !== 'fallback')
+    .map(Number)
+    .filter((c) => [95, 96, 99].indexOf(c) < 0)
+    .filter((c) => !tgSkyKind(c));
+  return missing.join(',') || 'all rateable';
+})(), 'all rateable');
+
+check('stored ratings survive, bad ones fall back to the default', (() => {
+  const real = localStorage.getItem('touchgrass.settings');
+  localStorage.setItem('touchgrass.settings', JSON.stringify(
+    { sky: { overcast: 0, rain: 9, snow: 'lots', fog: 2.5 } }));
+  const sky = getSettings().sky;
+  if (real === null) localStorage.removeItem('touchgrass.settings');
+  else localStorage.setItem('touchgrass.settings', real);
+  return [sky.overcast, sky.rain, sky.snow, sky.fog, sky.clear].join(',');
+})(), '0,3,1,2,0');
+
+check('every kind of weather and every rating is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return TG_SKY_ORDER.every((k) => !!(u.skyKinds && u.skyKinds[k])) &&
+           !!u.skyRatings && u.skyRatings.length === 5 && !!u.factors.sky;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

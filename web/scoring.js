@@ -21,6 +21,53 @@ var TG_ICE = [56, 57, 66, 67];
 var TG_HEAVY = [65, 75, 82, 86];
 var TG_FOG = [45, 48];
 
+/* ----------------------------------------------------------
+   Kinds of weather, and how much each is liked.
+
+   Clear blue sky and a grey lid used to score the same. Now each kind
+   carries a rating from 0 (love it) to 4 (hate it), worth the points in
+   TG_SKY_POINTS. This is about how the sky feels; getting wet is still
+   scored separately, by rain chance and amount under the rain dial, so
+   the rain rating is modest on top of it.
+
+   Thunder is deliberately absent: it is safety, a fixed -45 that no
+   rating softens.
+   ---------------------------------------------------------- */
+var TG_SKY_ORDER = ['clear', 'mostlyClear', 'partly', 'overcast', 'fog',
+                    'drizzle', 'rain', 'snow', 'freezing'];
+
+var TG_SKY_KINDS = {
+  clear: [0], mostlyClear: [1], partly: [2], overcast: [3],
+  fog: [45, 48],
+  drizzle: [51, 53, 55],
+  rain: [61, 63, 65, 80, 81, 82],
+  snow: [71, 73, 75, 77, 85, 86],
+  freezing: [56, 57, 66, 67]
+};
+
+// Love it, Like it, Fine, Not keen, Hate it.
+var TG_SKY_POINTS = [0, 5, 10, 20, 35];
+
+var TG_SKY_DEFAULTS = {
+  clear: 0, mostlyClear: 0, partly: 1, overcast: 2, fog: 2,
+  drizzle: 2, rain: 3, snow: 1, freezing: 4
+};
+
+function tgSkyKind(code) {
+  for (var i = 0; i < TG_SKY_ORDER.length; i++) {
+    if (tgHas(TG_SKY_KINDS[TG_SKY_ORDER[i]], code)) return TG_SKY_ORDER[i];
+  }
+  return null;
+}
+
+/* The rating the user gave this kind, or the default if they gave none
+   or something unusable. */
+function tgSkyRating(sky, kind) {
+  var v = sky && sky[kind];
+  if (typeof v === 'number' && v >= 0 && v <= 4 && Math.floor(v) === v) return v;
+  return TG_SKY_DEFAULTS[kind];
+}
+
 function tgClamp(n, lo, hi) {
   return Math.max(lo, Math.min(hi, n));
 }
@@ -103,12 +150,15 @@ function tgExplainHour(h, dials) {
   }
   if (tgIsDeepNight(h.hour)) take('night', 25 * dark, false);
 
-  // --- codes that deserve their own penalty
+  // --- the kind of weather: thunder is safety and never discounted;
+  //     everything else is however much you like that sky.
   var c = h.code;
-  if (tgHas(TG_LIGHTNING, c))    take('code', 45, true);   // never discounted
-  else if (tgHas(TG_ICE, c))     take('code', 35 * cold, false);
-  else if (tgHas(TG_HEAVY, c))   take('code', 20 * rain, false);
-  else if (tgHas(TG_FOG, c))     take('code', 10 * rain, false);
+  if (tgHas(TG_LIGHTNING, c)) {
+    take('code', 45, true);
+  } else {
+    var kind = tgSkyKind(c);
+    if (kind) take('sky', TG_SKY_POINTS[tgSkyRating(dials.sky, kind)], false);
+  }
 
   return {
     start: 100,
@@ -144,6 +194,12 @@ function tgScoreArgs(hour, feels, pop, precip, wind, isDay, code,
     { rain: dRain, cold: dCold, heat: dHeat, wind: dWind, dark: dDark,
       twilight: dTwilight }
   );
+}
+
+/* JSON doorway for the score, now that the dials carry the sky ratings
+   as an object rather than a flat list of numbers. */
+function tgScoreJson(hourJson, dialsJson) {
+  return tgScoreHour(JSON.parse(hourJson), JSON.parse(dialsJson));
 }
 
 function tgIsRiskyArgs(feels, code) {
