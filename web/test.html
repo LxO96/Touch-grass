@@ -1997,6 +1997,17 @@ check('every first is named in both languages', (() => {
   return ok;
 })(), true);
 
+/* ================= changing a day in the popup ================= */
+
+check('a day goes up one trip at a time', stepTrips(2, +1), 3);
+check('a day stops at five', stepTrips(5, +1), 5);
+check('a day goes down one trip at a time', stepTrips(3, -1), 2);
+check('a day cannot go below none', stepTrips(0, -1), 0);
+check('a day already past five (from the Today button) can still come down',
+  stepTrips(8, -1), 7);
+check('a day already past five is not pushed further up', stepTrips(8, +1), 8);
+check('the most the popup allows is five', TRIPS_MAX, 5);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

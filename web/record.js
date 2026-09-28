@@ -158,33 +158,76 @@ function renderYear(log, L) {
 
 /* ---------- press and hold a day to change it ----------
 
-   A quick tap used to change a day, which made it far too easy to edit
-   the year by scrolling past it. Now a tap only says what the day holds;
-   holding it for half a second cycles it none -> 1 -> 2 -> 3 -> none,
-   with a buzz so you know it took. From the keyboard, Enter still edits:
-   there is no long-press on a keyboard. */
+   A quick tap only says what the day holds — scrolling past the grid
+   must never edit the year. Pressing and holding for half a second opens
+   a small popup to set the day's trips, with a buzz so you know it took.
+   From the keyboard, Enter opens it: there is no long-press on a
+   keyboard. */
 
 const HOLD_MS = 500;
+let dayOpen = null;   // the key the popup is showing
 
 function dayNote(key) {
-  const n = visitsOn(key);
   const L = T().ui;
   const note = $('day-note');
-  if (note) note.textContent = `${key} — ${L.tripsOn(n)}. ${L.holdToChange}`;
+  if (note) note.textContent = `${key} — ${L.tripsOn(visitsOn(key))}. ${L.holdToChange}`;
 }
 
-function bumpDay(key) {
-  setVisits(key, (visitsOn(key) + 1) % 4);
-  try { if (navigator.vibrate) navigator.vibrate(25); } catch {}
-  renderRecord();
-  dayNote(key);
+function paintDayDialog() {
+  const L = T().ui;
+  const n = visitsOn(dayOpen);
+  const d = new Date(dayOpen + 'T00:00:00');
+  $('day-title').textContent = `${d.getDate()} ${L.monthsLong[d.getMonth()]}`;
+  $('day-count').textContent = String(n);
+  $('day-words').textContent = L.tripsOn(n);
+  $('day-less').disabled = n <= 0;
+  $('day-more').disabled = n >= TRIPS_MAX;
 }
+
+function openDay(key) {
+  dayOpen = key;
+  // The app buzzes natively: Chrome refuses navigator.vibrate before a tap,
+  // and a long-press is not one. In a browser, try anyway.
+  try {
+    if (typeof TouchGrassAndroid !== 'undefined' && TouchGrassAndroid.buzz) TouchGrassAndroid.buzz();
+    else if (navigator.vibrate) navigator.vibrate(25);
+  } catch {}
+  paintDayDialog();
+  const dlg = $('day-dialog');
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  $('day-done').focus();
+}
+
+function stepDay(delta) {
+  if (!dayOpen) return;
+  setVisits(dayOpen, stepTrips(visitsOn(dayOpen), delta));
+  renderRecord();
+  paintDayDialog();
+  dayNote(dayOpen);
+}
+
+function closeDay() {
+  const dlg = $('day-dialog');
+  if (dlg.close) dlg.close(); else dlg.removeAttribute('open');
+}
+
+$('day-less').addEventListener('click', () => stepDay(-1));
+$('day-more').addEventListener('click', () => stepDay(+1));
+$('day-done').addEventListener('click', closeDay);
+// A tap on the dimmed backdrop, outside the box, closes it too.
+$('day-dialog').addEventListener('click', (e) => {
+  if (e.target === $('day-dialog')) closeDay();
+});
+$('day-dialog').addEventListener('close', () => { dayOpen = null; });
 
 function wireDayTaps(hostId) {
   const host = $(hostId);
   let timer = null, startX = 0, startY = 0, held = false;
 
-  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+  const clearHold = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
+  };
 
   host.addEventListener('pointerdown', (e) => {
     const cell = e.target.closest('[data-key]');
@@ -196,25 +239,17 @@ function wireDayTaps(hostId) {
       timer = null;
       held = true;
       cell.classList.remove('holding');
-      bumpDay(cell.dataset.key);
+      openDay(cell.dataset.key);
     }, HOLD_MS);
   });
 
   // A finger that moves is scrolling, not holding.
   host.addEventListener('pointermove', (e) => {
-    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
-      cancel();
-      host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
-    }
+    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) clearHold();
   });
-
-  const release = () => {
-    cancel();
-    host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
-  };
-  host.addEventListener('pointerup', release);
-  host.addEventListener('pointercancel', release);
-  host.addEventListener('pointerleave', release);
+  host.addEventListener('pointerup', clearHold);
+  host.addEventListener('pointercancel', clearHold);
+  host.addEventListener('pointerleave', clearHold);
 
   // Long-press would otherwise open the phone's own menu.
   host.addEventListener('contextmenu', (e) => e.preventDefault());
@@ -222,9 +257,9 @@ function wireDayTaps(hostId) {
   host.addEventListener('click', (e) => {
     const cell = e.target.closest('[data-key]');
     if (!cell || cell.disabled) return;
-    if (held) { held = false; return; }          // the hold already changed it
-    if (e.detail === 0) bumpDay(cell.dataset.key); // Enter / Space
-    else dayNote(cell.dataset.key);                // a tap only reports
+    if (held) { held = false; return; }            // the hold already opened it
+    if (e.detail === 0) openDay(cell.dataset.key);  // Enter / Space
+    else dayNote(cell.dataset.key);                 // a tap only reports
   });
 }
 

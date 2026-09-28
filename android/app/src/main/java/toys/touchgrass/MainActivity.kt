@@ -94,6 +94,30 @@ class MainActivity : AppCompatActivity() {
          * Returns them once and forgets them, so the page can fold them
          * into localStorage — which stays the only source of truth.
          */
+        /**
+         * A short buzz for the press-and-hold on the year page. Chrome only
+         * lets a page vibrate after a tap, and a long-press is not one, so
+         * the first hold of a visit would otherwise be silent.
+         */
+        @JavascriptInterface
+        fun buzz() {
+            try {
+                val v = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    getSystemService(android.os.Vibrator::class.java)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    v?.vibrate(android.os.VibrationEffect.createOneShot(25, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v?.vibrate(25)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
         @JavascriptInterface
         fun takePendingVisits(): Int {
             return try {

@@ -201,6 +201,11 @@ function applyStatic(root) {
     if (typeof v === 'string') el.textContent = v;
   });
 
+  scope.querySelectorAll('[data-t-aria]').forEach((el) => {
+    const v = L.ui[el.dataset.tAria];
+    if (typeof v === 'string') el.setAttribute('aria-label', v);
+  });
+
   scope.querySelectorAll('[data-t-ph]').forEach((el) => {
     const v = L.ui[el.dataset.tPh];
     if (typeof v === 'string') el.placeholder = v;
@@ -257,6 +262,16 @@ function getLog() {
 
 function saveLog(log) {
   try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch {}
+}
+
+/* The most a day can be set to from the year page. The Today button is
+   not capped, so a day can hold more; the popup then lets it come down
+   but never pushes it further up. */
+const TRIPS_MAX = 5;
+
+function stepTrips(n, delta) {
+  if (delta > 0) return n >= TRIPS_MAX ? n : n + 1;
+  return Math.max(0, n - 1);
 }
 
 function visitsOn(key) { return getLog()[key] || 0; }

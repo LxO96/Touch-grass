@@ -72,6 +72,19 @@
     </div>
   </section>
 
+  <!-- press and hold a day: set its trips -->
+  <dialog class="day-dialog" id="day-dialog" aria-labelledby="day-title">
+    <h3 id="day-title"></h3>
+    <div class="day-stepper">
+      <button type="button" class="btn day-step" id="day-less" data-t-aria="dayLess" aria-label="One fewer">&minus;</button>
+      <span class="day-count" id="day-count" aria-live="polite">0</span>
+      <button type="button" class="btn day-step" id="day-more" data-t-aria="dayMore" aria-label="One more">+</button>
+    </div>
+    <p class="day-words" id="day-words"></p>
+    <p class="hint small" data-t="dayMaxNote">Five at most.</p>
+    <button type="button" class="btn big-btn" id="day-done" data-t="dayDone">DONE</button>
+  </dialog>
+
   <footer>
     <span class="nofont">&#9632;</span> <span data-t="footer">go outside</span> <span class="nofont">&#9632;</span>
   </footer>

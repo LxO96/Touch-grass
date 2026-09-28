@@ -518,16 +518,17 @@ h1 { transition: opacity 80ms linear; }
 /* The year: twelve month columns, thirty-one day rows. */
 .cal {
   display: grid;
-  grid-template-columns: 2.2em repeat(12, 1fr);
-  gap: 3px;
-  width: 100%;
+  grid-template-columns: 2em repeat(12, var(--yc));
+  gap: 4px;
+  justify-content: center;   /* the whole array sits in the middle */
+  --yc: 17px;
 }
-.yc-month { font-size: 14px; text-align: center; opacity: 0.75; }
-.yc-day { font-size: 13px; text-align: right; padding-right: 4px; opacity: 0.6; line-height: 16px; }
+.yc-month { font-size: 12px; text-align: center; opacity: 0.75; overflow: visible; white-space: nowrap; }
+.yc-day { font-size: 12px; text-align: right; padding-right: 4px; opacity: 0.6; line-height: var(--yc); }
 
 .cell {
-  width: 100%;
-  height: 16px;
+  width: var(--yc, 17px);
+  height: var(--yc, 17px);
   padding: 0;
   border: 1px solid rgba(48, 62, 78, 0.35);
   background: white;
@@ -1043,3 +1044,24 @@ h2.spaced { margin-top: 26px; }
   transition: transform 500ms ease;
 }
 .day-note { min-height: 1.3em; margin-top: 2px; }
+
+/* ---------- the day popup ---------- */
+
+.day-dialog {
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  background: white;
+  color: var(--ink);
+  font-family: var(--fontA);
+  padding: 18px 22px 20px;
+  width: min(320px, calc(100vw - 48px));
+  text-align: center;
+}
+.day-dialog::backdrop { background: rgba(48, 62, 78, 0.45); }
+.day-dialog h3 { font-size: 30px; margin: 0 0 10px; }
+.day-stepper { display: flex; align-items: center; justify-content: center; gap: 22px; }
+.day-step { width: 64px; height: 64px; font-size: 38px; line-height: 1; padding: 0; }
+.day-step:disabled { opacity: 0.3; }
+.day-count { font-size: 64px; min-width: 1.4ch; line-height: 1; }
+.day-words { margin: 8px 0 2px; font-size: 20px; }
+.day-dialog .big-btn { margin-top: 12px; width: 100%; }
