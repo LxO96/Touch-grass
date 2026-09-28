@@ -21,6 +21,7 @@ object Notifier {
     private const val ID_NUDGE = 1001
     private const val ID_WINDOW = 1002
     const val ID_CHECKING = 1003
+    private const val ID_AURORA = 1004
 
     fun ensureChannels(c: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -92,6 +93,23 @@ object Notifier {
                 .setContentIntent(openApp(c))
                 .setAutoCancel(true)
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+                .build()
+        )
+    }
+
+    fun aurora(c: Context, text: String) {
+        ensureChannels(c)
+        post(
+            c, ID_AURORA,
+            NotificationCompat.Builder(c, CHANNEL_WINDOW)
+                .setSmallIcon(R.drawable.ic_stat_grass)
+                .setContentTitle("Aurora likely now")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(openApp(c))
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .build()
         )
     }

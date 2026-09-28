@@ -69,6 +69,20 @@ object NudgeTiming {
     fun alertQuiet(openedAt: Long, now: Long): Boolean =
         openedAt > 0 && now - openedAt in 0 until QUIET_AFTER_OPEN_MS
 
+    /** The night an aurora alert belongs to: its evening's date, so 01:00
+        counts with the night before rather than as a new one. */
+    fun auroraNight(now: Long, zone: TimeZone): String = dayKey(now - 12 * 3600 * 1000L, zone)
+
+    /** The start of the hour `hoursFromNow` away, to wake for it. */
+    fun hourStart(now: Long, hoursFromNow: Int, zone: TimeZone): Long =
+        Calendar.getInstance(zone).apply {
+            timeInMillis = now
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+            add(Calendar.HOUR_OF_DAY, hoursFromNow)
+        }.timeInMillis
+
     /** Local calendar day, as the once-a-day guards and the log key it. */
     fun dayKey(now: Long, zone: TimeZone): String {
         val cal = Calendar.getInstance(zone).apply { timeInMillis = now }

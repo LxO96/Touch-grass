@@ -52,7 +52,8 @@ object Scheduler {
 
     /** Called whenever the page changes what it wants. */
     fun sync(c: Context) {
-        if (Prefs.remindersOn(c) || Prefs.watchOn(c)) schedule(c) else cancel(c)
+        if (Prefs.remindersOn(c) || Prefs.watchOn(c) || Prefs.auroraAlertOn(c)) schedule(c) else cancel(c)
+        if (!Prefs.auroraAlertOn(c)) AuroraAlarm.cancel(c)
         NudgeAlarm.arm(c)
     }
 }

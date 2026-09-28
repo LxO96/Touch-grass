@@ -2023,6 +2023,157 @@ check('forward from this month goes nowhere: it has not happened yet',
 check('back is always allowed',
   JSON.stringify(shiftMonth(2026, 8, -1, SEPT)), JSON.stringify({ year: 2026, month: 7 }));
 
+/* ================= the aurora ================= */
+
+// Aurora follows geomagnetic latitude, not geographic. The oval's edge
+// sits near 66.5 degrees at Kp 0 and moves about 2.05 degrees south per
+// Kp. Dark, clear-ish hours earn +20 when it reaches you (likely) and +10
+// when it is within two degrees (possible, low on the northern horizon).
+
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+check('Stockholm is about 58 degrees geomagnetic',
+  near(tgGeomagLat(59.33, 18.07), 58.0, 0.6), true);
+check('Kiruna is about 65.6 degrees geomagnetic',
+  near(tgGeomagLat(67.86, 20.23), 65.6, 0.6), true);
+check('Stockholm needs about Kp 4',
+  Math.round(tgKpNeeded(tgGeomagLat(59.33, 18.07)) * 10) / 10 >= 3.6 &&
+  Math.round(tgKpNeeded(tgGeomagLat(59.33, 18.07)) * 10) / 10 <= 4.6, true);
+check('inside the oval, any Kp will do', tgKpNeeded(70), 0);
+
+const KP = [
+  { time_tag: '2026-09-28T15:00:00', kp: 2.33, observed: 'observed' },
+  { time_tag: '2026-09-28T18:00:00', kp: 5.0, observed: 'predicted' },
+  { time_tag: '2026-09-28T21:00:00', kp: 3.67, observed: 'predicted' },
+  { time_tag: '2026-09-29T00:00:00', kp: 1.0, observed: 'predicted' }
+];
+
+check('an hour takes the Kp of the three-hour block it falls in',
+  tgKpAt(KP, '2026-09-28T20:00:00Z'), 5.0);
+check('the block boundary belongs to the new block',
+  tgKpAt(KP, '2026-09-28T21:00:00Z'), 3.67);
+check('an hour past the end of the forecast has no Kp, not the last one',
+  tgKpAt(KP, '2026-09-29T05:00:00Z'), null);
+check('an hour before the forecast starts has no Kp',
+  tgKpAt(KP, '2026-09-28T09:00:00Z'), null);
+check('a malformed Kp payload has no Kp',
+  tgKpAt({ nonsense: true }, '2026-09-28T20:00:00Z'), null);
+
+// A slice of the OVATION grid: [lon 0..359, lat, percent].
+const OVAL = { coordinates: [
+  [18, 58, 1], [18, 59, 4], [18, 61, 22], [18, 64, 41], [18, 65, 70],
+  [19, 60, 90],                 // next longitude over: not ours
+  [340, 64, 55]                 // 20 W
+] };
+
+check('OVATION reads the strongest point from here to five degrees north',
+  tgOvationAt(OVAL, 59.33, 18.07), 41);
+check('a western longitude wraps onto the 0-359 grid',
+  tgOvationAt(OVAL, 62, -20), 55);
+check('nothing on the grid for this spot is no reading',
+  tgOvationAt(OVAL, 30, 100), null);
+
+const darkClear = (o) => Object.assign(
+  { time: '2026-09-28T20:00:00Z', isDay: false, twilight: null, code: 2 }, o || {});
+const needHere = tgKpNeeded(58);
+
+check('Kp that reaches you, dark and clear, is likely',
+  tgAuroraFor(darkClear(), 5.0, needHere, null).level, 'likely');
+check('Kp that nearly reaches you is possible',
+  tgAuroraFor(darkClear(), needHere - 0.5, needHere, null).level, 'possible');
+check('Kp well short of you is nothing',
+  tgAuroraFor(darkClear(), needHere - 2, needHere, null).level, null);
+check('daylight hides it',
+  tgAuroraFor(darkClear({ isDay: true }), 7, needHere, null).level, null);
+check('the twilight hour is too light for it',
+  tgAuroraFor(darkClear({ twilight: 'dusk' }), 7, needHere, null).level, null);
+check('overcast hides it',
+  tgAuroraFor(darkClear({ code: 3 }), 7, needHere, null).level, null);
+check('OVATION speaks for the hour it covers, over Kp',
+  tgAuroraFor(darkClear(), 1, needHere, 41).level, 'likely');
+check('a weak OVATION reading is possible',
+  tgAuroraFor(darkClear(), 7, needHere, 12).level, 'possible');
+check('a faint OVATION reading is nothing, whatever Kp says',
+  tgAuroraFor(darkClear(), 7, needHere, 3).level, null);
+
+// Scoring
+const auroraHour = (level) => at({ hour: 22, isDay: false, code: 0,
+  aurora: level, auroraSource: 'kp', auroraValue: 5 });
+
+check('a likely aurora earns 20',
+  scoreHour(auroraHour('likely'), S) - scoreHour(auroraHour(null), S), 20);
+check('a possible aurora earns 10',
+  scoreHour(auroraHour('possible'), S) - scoreHour(auroraHour(null), S), 10);
+check('the aurora bonus can be switched off',
+  scoreHour(auroraHour('likely'), Object.assign({}, S, { aurora: false })),
+  scoreHour(auroraHour(null), S));
+check('the aurora bonus is on by default', DEFAULTS.aurora, true);
+check('the aurora shows as its own row, with its Kp', (() => {
+  const e = tgExplainHour(auroraHour('likely'), S);
+  const row = e.parts.filter((p) => p.key === 'auroraLikely')[0];
+  return row ? row.amount + ' / ' + factorFact('auroraLikely', auroraHour('likely')) : 'no row';
+})(), '20 / ' + T().ui.kpFact(5));
+
+// The forecast: Stockholm on a dark evening with Kp 5 between 18 and 21 UTC.
+const AURORA_OM = (() => {
+  const hours = [], isDay = [], codes = [];
+  for (let i = 0; i < 14; i++) {
+    const h = (21 + i) % 24;
+    const day = i < 3 ? '2026-09-28' : '2026-09-29';
+    hours.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    isDay.push(h >= 7 && h < 19 ? 1 : 0);
+    codes.push(h === 23 ? 3 : 0);          // cloud at 23:00 local only
+  }
+  const n = hours.length, fill = (v) => Array.from({ length: n }, () => v);
+  return {
+    latitude: 59.33, longitude: 18.07, utc_offset_seconds: 7200,
+    current: { time: '2026-09-28T21:10' },
+    hourly: { time: hours, is_day: isDay, weather_code: codes,
+      temperature_2m: fill(8), apparent_temperature: fill(6),
+      precipitation_probability: fill(0), precipitation: fill(0),
+      wind_speed_10m: fill(6) },
+    daily: { time: ['2026-09-28', '2026-09-29'], sunset: ['2026-09-28T18:40', '2026-09-29T18:37'] }
+  };
+})();
+
+const auroraRow = (f, hour) => [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+
+check('the forecast marks a likely aurora from Kp', (() => {
+  const f = tgForecast({ om: AURORA_OM, kp: KP });
+  const r = auroraRow(f, 22);                 // 20:00 UTC, Kp 5
+  return r.aurora + ':' + r.auroraSource + ':' + r.auroraValue;
+})(), 'likely:kp:5');
+
+check('a cloudy hour in the same storm is not marked',
+  auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 23).aurora, null);
+
+check('without a Kp forecast nothing is marked',
+  auroraRow(tgForecast({ om: AURORA_OM }), 22).aurora, null);
+
+check('OVATION refines the current hour only', (() => {
+  const f = tgForecast({ om: AURORA_OM, kp: KP, ovation: { coordinates: [[18, 60, 3]] } });
+  return f.now.aurora + ',' + auroraRow(f, 22).aurora;
+})(), 'null,likely');
+
+check('OVATION is worth fetching on a dark, clear, active night',
+  tgWantsOvation(tgForecast({ om: AURORA_OM, kp: KP })), true);
+check('OVATION is not worth fetching when Kp is quiet',
+  tgWantsOvation(tgForecast({ om: AURORA_OM, kp: [
+    { time_tag: '2026-09-28T18:00:00', kp: 1 }] })), false);
+
+check('the aurora is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return !!u.factors.auroraLikely && !!u.factors.auroraPossible &&
+      typeof u.kpFact === 'function' && typeof u.ovalFact === 'function' &&
+      !!u.auroraToggle && !!u.auroraAlert;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

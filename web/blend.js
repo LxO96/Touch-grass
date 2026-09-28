@@ -431,6 +431,103 @@ function tgNoveltyFor(nov, row) {
   return { kind: null, days: null };
 }
 
+/* ----------------------------------------------------------
+   The aurora.
+
+   It follows geomagnetic latitude, not geographic: Kiruna and a town at
+   the same latitude in Siberia see very different skies. A dipole model
+   is plenty at this scale. The oval's equatorward edge sits near 66.5
+   degrees geomagnetic at Kp 0 and moves about 2.05 degrees south per Kp,
+   which puts Stockholm at about Kp 4 and Kiruna at about Kp 0.5.
+
+   Kp (NOAA, three-hour blocks) covers every hour on the chart. OVATION
+   (NOAA's half-hourly probability grid) is sharper, so it speaks for the
+   current hour when it has been fetched. Only dark, clear-ish hours
+   count: an aurora behind cloud or in daylight is no reason to go out.
+   ---------------------------------------------------------- */
+var TG_AURORA = {
+  poleLat: 80.7, poleLon: -72.7,   // geomagnetic north pole
+  edgeAtKp0: 66.5, degPerKp: 2.05, // the oval's equatorward edge
+  possibleDeg: 2,                  // this far short still shows low in the north
+  ovalLikely: 30, ovalPossible: 10,// OVATION percent
+  northDeg: 5,                     // seen low over the horizon from this far south
+  sky: ['clear', 'mostlyClear', 'partly']
+};
+
+function tgGeomagLat(lat, lon) {
+  var r = Math.PI / 180;
+  var s = Math.sin(lat * r) * Math.sin(TG_AURORA.poleLat * r) +
+          Math.cos(lat * r) * Math.cos(TG_AURORA.poleLat * r) *
+          Math.cos((lon - TG_AURORA.poleLon) * r);
+  return Math.asin(Math.max(-1, Math.min(1, s))) / r;
+}
+
+// The Kp at which the oval's edge reaches this geomagnetic latitude.
+function tgKpNeeded(mlat) {
+  return Math.max(0, (TG_AURORA.edgeAtKp0 - mlat) / TG_AURORA.degPerKp);
+}
+
+// Kp for the three-hour block `stamp` (UTC, "...Z") falls in, or null.
+function tgKpAt(kp, stamp) {
+  if (!kp || typeof kp.length !== 'number') return null;
+  var best = null, i;
+  for (i = 0; i < kp.length; i++) {
+    var r = kp[i];
+    if (!r || typeof r.time_tag !== 'string' || typeof r.kp !== 'number') continue;
+    var start = r.time_tag.slice(0, 19) + 'Z';
+    if (start <= stamp && (best === null || start > best.start)) best = { start: start, kp: r.kp };
+  }
+  if (best === null) return null;
+  // More than three hours past the block's start is past the forecast.
+  var gap = (Date.parse(stamp) - Date.parse(best.start)) / 3600000;
+  return gap < 3 ? best.kp : null;
+}
+
+// OVATION's strongest point from here to a few degrees north, or null.
+function tgOvationAt(ov, lat, lon) {
+  var grid = ov && ov.coordinates;
+  if (!grid || typeof grid.length !== 'number') return null;
+  var lonKey = ((Math.round(lon) % 360) + 360) % 360;
+  var lo = Math.round(lat), hi = lo + TG_AURORA.northDeg;
+  var best = null, i;
+  for (i = 0; i < grid.length; i++) {
+    var p = grid[i];
+    if (!p || p[0] !== lonKey || p[1] < lo || p[1] > hi) continue;
+    if (best === null || p[2] > best) best = p[2];
+  }
+  return best;
+}
+
+/* What the aurora means for one hour. `oval` (OVATION percent) wins over
+   Kp for the hour it covers; otherwise Kp against what this latitude
+   needs. Dark and clear-ish, or nothing. */
+function tgAuroraFor(row, kp, need, oval) {
+  var none = { level: null, source: null, value: null };
+  if (row.isDay || row.twilight) return none;
+  var kind = tgSkyKind(row.code), ok = false, i;
+  for (i = 0; i < TG_AURORA.sky.length; i++) if (TG_AURORA.sky[i] === kind) ok = true;
+  if (!ok) return none;
+
+  if (typeof oval === 'number') {
+    if (oval >= TG_AURORA.ovalLikely) return { level: 'likely', source: 'oval', value: oval };
+    if (oval >= TG_AURORA.ovalPossible) return { level: 'possible', source: 'oval', value: oval };
+    return none;
+  }
+  if (typeof kp !== 'number') return none;
+  if (kp >= need) return { level: 'likely', source: 'kp', value: kp };
+  if (kp >= need - TG_AURORA.possibleDeg / TG_AURORA.degPerKp) {
+    return { level: 'possible', source: 'kp', value: kp };
+  }
+  return none;
+}
+
+/* The OVATION grid is almost a megabyte, so it is fetched only when it
+   could change the answer: dark and clear now, and Kp already says an
+   aurora is at least possible here. */
+function tgWantsOvation(f) {
+  return !!(f && f.now && f.now.aurora && f.now.auroraSource === 'kp');
+}
+
 function tgLocalToUtc(local, offsetSeconds) {
   if (typeof local !== 'string' || local.length < 16) return null;
   var y = parseInt(local.slice(0, 4), 10);
@@ -558,6 +655,9 @@ function tgForecast(raw) {
   var seen = {};
   var rows = [];
   var novelty = tgNovelty(spine.history, spine.daylight.today);
+  var here = raw.om && typeof raw.om.latitude === 'number' ? raw.om : null;
+  var kpNeed = here ? tgKpNeeded(tgGeomagLat(here.latitude, here.longitude)) : 99;
+  var oval = here && raw.ovation ? tgOvationAt(raw.ovation, here.latitude, here.longitude) : null;
   var i, m;
   for (i = 0; i < blended.length; i++) {
     var b = blended[i];
@@ -573,9 +673,15 @@ function tgForecast(raw) {
       pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
       isDay: isDay, twilight: tgTwilight(spine.daylight.byTime, b.time, isDay),
       novelty: null, noveltyDays: null,
+      aurora: null, auroraSource: null, auroraValue: null,
       hoursFromNow: 0, contributors: b.sources
     });
     var row = rows[rows.length - 1];
+    var aur = tgAuroraFor(row, tgKpAt(raw.kp, b.time), kpNeed,
+                          rows.length === 1 ? oval : null);
+    row.aurora = aur.level;
+    row.auroraSource = aur.source;
+    row.auroraValue = aur.value;
     if (spine.daylight.localDateByTime[b.time] === spine.daylight.today) {
       var first = tgNoveltyFor(novelty, row);
       row.novelty = first.kind;
@@ -597,10 +703,16 @@ function tgForecast(raw) {
 
 /* JSON doorway, so Rhino callers can hand over three response bodies
    without marshalling object graphs field by field. */
-function tgForecastJson(omJson, metJson, smhiJson) {
+function tgForecastJson(omJson, metJson, smhiJson, kpJson, ovationJson) {
   return JSON.stringify(tgForecast({
     om: omJson ? JSON.parse(omJson) : null,
     met: metJson ? JSON.parse(metJson) : null,
-    smhi: smhiJson ? JSON.parse(smhiJson) : null
+    smhi: smhiJson ? JSON.parse(smhiJson) : null,
+    kp: kpJson ? JSON.parse(kpJson) : null,
+    ovation: ovationJson ? JSON.parse(ovationJson) : null
   }));
+}
+
+function tgWantsOvationJson(forecastJson) {
+  return tgWantsOvation(forecastJson ? JSON.parse(forecastJson) : null);
 }

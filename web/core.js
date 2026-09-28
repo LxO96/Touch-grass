@@ -29,6 +29,7 @@ const DEFAULTS = {
   twilight: 1, // dusk and dawn: 0 just dark, 1 no dark penalty, 2 a bonus
   sky: Object.assign({}, TG_SKY_DEFAULTS),  // 0 love it .. 4 hate it, per kind
   novelty: true,  // firsts earn a bonus
+  aurora: true,   // a likely aurora earns a bonus
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -64,6 +65,7 @@ function getSettings() {
     s.sky = {};
     for (const k of TG_SKY_ORDER) s.sky[k] = tgSkyRating(raw.sky, k);
     s.novelty = raw.novelty !== false;
+    s.aurora = raw.aurora !== false;
     return s;
   } catch { return freshDefaults(); }
 }
@@ -498,6 +500,7 @@ const NOTIFY_DEFAULTS = {
   minute: 0,
   beforeSunset: 2,    // hours before sundown, when mode is 'sunset'
   watch: false,       // watch for a genuinely good window
+  aurora: false,      // tell me when the aurora is likely and the sky is clear
   windowStart: 9,     // ...but only between these hours
   windowEnd: 20,
   greatBar: 75,       // what counts as worth interrupting you for
@@ -606,6 +609,10 @@ function factorFact(key, h) {
       return h.noveltyDays ? T().ui.dryDays(h.noveltyDays) : '';
     case 'firstSun':
       return h.noveltyDays ? T().ui.greyDays(h.noveltyDays) : '';
+    case 'auroraLikely':
+    case 'auroraPossible':
+      if (h.auroraSource === 'oval') return T().ui.ovalFact(Math.round(h.auroraValue));
+      return typeof h.auroraValue === 'number' ? T().ui.kpFact(Math.round(h.auroraValue * 10) / 10) : '';
     case 'firstWarm':
       return fmtTemp(tgNum(h.feels, 16), u);
     // Dark is dark, and 3am is 3am. Neither needs a number.

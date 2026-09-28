@@ -32,6 +32,7 @@ object Prefs {
             putString("mode", n.optString("mode", "clock"))
             putFloat("beforeSunset", n.optDouble("beforeSunset", 2.0).toFloat())
             putBoolean("watch", n.optBoolean("watch", false))
+            putBoolean("auroraAlert", n.optBoolean("aurora", false))
             putInt("windowStart", n.optInt("windowStart", 9))
             putInt("windowEnd", n.optInt("windowEnd", 20))
             putInt("greatBar", n.optInt("greatBar", 75))
@@ -53,6 +54,7 @@ object Prefs {
             putFloat("twilight", s.optDouble("twilight", 1.0).toFloat())
             putString("sky", (s.optJSONObject("sky") ?: org.json.JSONObject()).toString())
             putBoolean("novelty", s.optBoolean("novelty", true))
+            putBoolean("aurora", s.optBoolean("aurora", true))
             putInt("bar", s.optInt("bar", 60))
 
             putInt("visitsToday", o.optInt("visitsToday", 0))
@@ -84,6 +86,7 @@ object Prefs {
         twilight = sp(c).getFloat("twilight", 1f).toDouble(),
         sky = skyRatings(c),
         novelty = sp(c).getBoolean("novelty", true),
+        aurora = sp(c).getBoolean("aurora", true),
         bar = sp(c).getInt("bar", 60)
     )
 
@@ -166,6 +169,9 @@ object Prefs {
     }
 
     fun watchOn(c: Context) = sp(c).getBoolean("watch", false)
+    fun auroraAlertOn(c: Context) = sp(c).getBoolean("auroraAlert", false)
+    fun alreadyAuroraAlerted(c: Context, night: String) = sp(c).getString("auroraOn", "") == night
+    fun markAuroraAlerted(c: Context, night: String) = sp(c).edit().putString("auroraOn", night).apply()
     fun windowStart(c: Context) = sp(c).getInt("windowStart", 9)
     fun windowEnd(c: Context) = sp(c).getInt("windowEnd", 20)
     fun greatBar(c: Context) = sp(c).getInt("greatBar", 75)

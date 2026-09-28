@@ -251,6 +251,16 @@ function buildSkies() {
 function paintNovelty() {
   const box = $('novelty');
   if (box) box.checked = SETTINGS.novelty !== false;
+  const aur = $('aurora');
+  if (aur) aur.checked = SETTINGS.aurora !== false;
+}
+
+if ($('aurora')) {
+  $('aurora').addEventListener('change', () => {
+    SETTINGS.aurora = $('aurora').checked;
+    saveSettings(SETTINGS);
+    renderPreview();
+  });
 }
 
 if ($('novelty')) {
@@ -474,6 +484,7 @@ function paintNotify() {
     NOTIFY.beforeSunset === 0 ? T().ui.atSunset : T().ui.hBefore(NOTIFY.beforeSunset);
   paintWhen();
   $('n-watch').checked = NOTIFY.watch;
+  $('n-aurora').checked = NOTIFY.aurora;
   $('n-great').value = NOTIFY.greatBar;
   $('n-great-val').textContent = NOTIFY.greatBar;
   $('n-from').value = hhmm(NOTIFY.windowStart, 0);
@@ -548,6 +559,11 @@ $('n-enabled').addEventListener('change', () => {
 $('n-time').addEventListener('change', () => {
   const t = parseTime($('n-time').value, NOTIFY.hour, NOTIFY.minute);
   NOTIFY.hour = t.h; NOTIFY.minute = t.m;
+  pushNotify();
+});
+
+$('n-aurora').addEventListener('change', () => {
+  NOTIFY.aurora = $('n-aurora').checked;
   pushNotify();
 });
 

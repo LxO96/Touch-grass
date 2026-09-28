@@ -13,6 +13,9 @@
       "twilight": null,
       "novelty": null,
       "noveltyDays": null,
+      "aurora": null,
+      "auroraSource": null,
+      "auroraValue": null,
       "hoursFromNow": 0,
       "contributors": [
         "met",
@@ -34,6 +37,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 1,
         "contributors": [
           "met",
@@ -54,6 +60,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -73,6 +82,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -91,6 +103,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -109,6 +124,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"
@@ -136,6 +154,9 @@
       "twilight": null,
       "novelty": null,
       "noveltyDays": null,
+      "aurora": null,
+      "auroraSource": null,
+      "auroraValue": null,
       "hoursFromNow": 0,
       "contributors": [
         "smhi",
@@ -156,6 +177,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 1,
         "contributors": [
           "smhi",
@@ -175,6 +199,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -194,6 +221,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -212,6 +242,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -230,6 +263,9 @@
         "twilight": null,
         "novelty": null,
         "noveltyDays": null,
+        "aurora": null,
+        "auroraSource": null,
+        "auroraValue": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"

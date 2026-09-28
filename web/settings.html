@@ -76,6 +76,12 @@
     <div id="skies" class="skies"></div>
 
     <label class="switch">
+      <input type="checkbox" id="aurora">
+      <span data-t="auroraToggle">The aurora is worth a bonus</span>
+    </label>
+    <p class="hint small" data-t="auroraBlurb">When the northern lights are likely: +20.</p>
+
+    <label class="switch">
       <input type="checkbox" id="novelty">
       <span data-t="noveltyToggle">Firsts are worth a bonus</span>
     </label>
@@ -127,6 +133,14 @@
         <p class="hint small" id="n-when">&nbsp;</p>
         <p class="hint small" data-t="oneNudgeADay">One nudge a day, and only if the day is still empty.</p>
       </div>
+    </div>
+
+    <div class="opt">
+      <label class="switch">
+        <input type="checkbox" id="n-aurora">
+        <span data-t="auroraAlert">Tell me when the aurora is likely</span>
+      </label>
+      <p class="hint small" data-t="auroraAlertBlurb">Once a night.</p>
     </div>
 
     <div class="opt">

@@ -151,6 +151,12 @@ function tgExplainHour(h, dials) {
 
   // --- a first: the first rain after a dry spell, the season's first
   //     snow, the first sun after a grey week, the first warm day of spring
+  // --- the aurora, dark and clear: a reason to go out on its own
+  if (h.aurora && dials.aurora !== false) {
+    if (h.aurora === 'likely') take('auroraLikely', -20, false);
+    else take('auroraPossible', -10, false);
+  }
+
   if (h.novelty && dials.novelty !== false) {
     take('first' + h.novelty.charAt(0).toUpperCase() + h.novelty.slice(1), -15, false);
   }

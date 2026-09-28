@@ -58,6 +58,28 @@ object NudgeAlarm {
 }
 
 /**
+ * Wakes a check at the start of the first hour tonight when the aurora is
+ * likely, so the alert is not left to an hourly job Android may defer.
+ */
+object AuroraAlarm {
+    private const val REQUEST = 4202
+
+    private fun pending(c: Context): PendingIntent = PendingIntent.getBroadcast(
+        c, REQUEST, Intent(c, NudgeReceiver::class.java).setAction("aurora"),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    fun arm(c: Context, at: Long) {
+        val am = c.getSystemService(AlarmManager::class.java) ?: return
+        AlarmManagerCompat.setAndAllowWhileIdle(am, AlarmManager.RTC_WAKEUP, at, pending(c))
+    }
+
+    fun cancel(c: Context) {
+        c.getSystemService(AlarmManager::class.java)?.cancel(pending(c))
+    }
+}
+
+/**
  * The alarm going off. The work itself — a weather fetch and a notification —
  * runs as expedited work, which the alarm's brief allowance lets start even
  * in Doze.

@@ -438,4 +438,69 @@ class ScoringEngineTest {
         assertEquals(Scoring.score(wet, Scoring.Dials()),
             Scoring.score(first, Scoring.Dials(novelty = false)))
     }
+
+    @Test
+    fun `a likely aurora earns its bonus through Rhino, and can be switched off`() {
+        val dark = Scoring.Hour(hour = 22, feels = 18.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0)
+        val likely = dark.copy(aurora = "likely", auroraSource = "kp", auroraValue = 5.0)
+        val possible = dark.copy(aurora = "possible", auroraSource = "kp", auroraValue = 3.5)
+        assertEquals(20, Scoring.score(likely, Scoring.Dials()) - Scoring.score(dark, Scoring.Dials()))
+        assertEquals(10, Scoring.score(possible, Scoring.Dials()) - Scoring.score(dark, Scoring.Dials()))
+        assertEquals(Scoring.score(dark, Scoring.Dials()),
+            Scoring.score(likely, Scoring.Dials(aurora = false)))
+    }
+
+    @Test
+    fun `Kp reaches the blend through Rhino and marks a dark clear hour`() {
+        // Stockholm on a dark, clear evening: 21:00 local onwards, UTC+2.
+        val hours = (0 until 8).map { "2026-09-28T${"%02d".format(21 + it - if (21 + it > 23) 24 else 0)}:00" }
+            .mapIndexed { i, t -> if (i >= 3) t.replace("2026-09-28", "2026-09-29") else t }
+        fun col(v: Any) = hours.joinToString(",", "[", "]") { "$v" }
+        val om = """{"latitude":59.33,"longitude":18.07,"utc_offset_seconds":7200,
+            "current":{"time":"2026-09-28T21:10"},
+            "hourly":{"time":${hours.joinToString(",", "[", "]") { "\"$it\"" }},
+              "is_day":${col(0)},"weather_code":${col(0)},"temperature_2m":${col(8)},
+              "apparent_temperature":${col(6)},"precipitation_probability":${col(0)},
+              "precipitation":${col(0)},"wind_speed_10m":${col(6)}},
+            "daily":{"time":["2026-09-28"],"sunset":["2026-09-28T18:40"]}}"""
+        val kp = """[{"time_tag":"2026-09-28T18:00:00","kp":6},{"time_tag":"2026-09-28T21:00:00","kp":6},
+            {"time_tag":"2026-09-29T00:00:00","kp":6}]"""
+        fun marked(json: String?): Int {
+            val o = JSONObject(json!!)
+            val rows = listOf(o.getJSONObject("now")) +
+                (0 until o.getJSONArray("ahead").length()).map { o.getJSONArray("ahead").getJSONObject(it) }
+            return rows.count { it.optString("aurora") == "likely" }
+        }
+        assertEquals(0, marked(Scoring.blend(om, null, null)))
+        assertEquals(8, marked(Scoring.blend(om, null, null, kp)))
+    }
+
+    @Test
+    fun `the aurora night runs from evening to the next morning`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        fun at(d: Int, h: Int) = java.util.Calendar.getInstance(z).apply {
+            clear(); set(2026, 8, d, h, 0, 0)
+        }.timeInMillis
+        assertEquals("2026-09-28", NudgeTiming.auroraNight(at(28, 22), z))
+        assertEquals("2026-09-28", NudgeTiming.auroraNight(at(29, 2), z))
+        assertEquals("2026-09-29", NudgeTiming.auroraNight(at(29, 21), z))
+    }
+
+    @Test
+    fun `the aurora alarm wakes at the start of the likely hour`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        val now = java.util.Calendar.getInstance(z).apply { clear(); set(2026, 8, 28, 20, 40, 0) }.timeInMillis
+        val at = java.util.Calendar.getInstance(z).apply { timeInMillis = NudgeTiming.hourStart(now, 2, z) }
+        assertEquals(22, at.get(java.util.Calendar.HOUR_OF_DAY))
+        assertEquals(0, at.get(java.util.Calendar.MINUTE))
+    }
+
+    @Test
+    fun `the aurora alert says which reading earned it`() {
+        val h = Scoring.Hour(hour = 22, feels = 5.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0, aurora = "likely")
+        assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "kp", auroraValue = 5.0)).contains("Kp 5"))
+        assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "oval", auroraValue = 41.0)).contains("41% chance"))
+    }
 }

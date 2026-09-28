@@ -56,6 +56,19 @@ const SMHI_URL = (lat, lon) =>
   'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1'
   + `/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
 
+const KP_URL = 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json';
+const OVATION_URL = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
+
+/* OVATION is almost a megabyte and NOAA refreshes it about every half
+   hour, so one copy is kept in memory and reused for that long. */
+let ovationCache = null;
+async function ovationNow() {
+  if (ovationCache && Date.now() - ovationCache.at < 30 * 60 * 1000) return ovationCache.data;
+  const data = await fetchOrNull(OVATION_URL);
+  if (data) ovationCache = { at: Date.now(), data };
+  return data;
+}
+
 /* One source failing must not cost us the other two, so each is
    allowed to come back null. SMHI answers only for the Nordics and
    404s elsewhere, which is not an error worth reporting — it is the
@@ -75,13 +88,19 @@ async function fetchOrNull(url) {
 }
 
 async function getWeather(lat, lon) {
-  const [om, met, smhi] = await Promise.all([
+  const [om, met, smhi, kp] = await Promise.all([
     fetchOrNull(OM_URL(lat, lon)),
     fetchOrNull(MET_URL(lat, lon)),
-    fetchOrNull(SMHI_URL(lat, lon))
+    fetchOrNull(SMHI_URL(lat, lon)),
+    fetchOrNull(KP_URL)
   ]);
 
-  const f = tgForecast({ om, met, smhi });
+  let f = tgForecast({ om, met, smhi, kp });
+  // Only worth the megabyte when it could change the answer for now.
+  if (tgWantsOvation(f)) {
+    const ovation = await ovationNow();
+    if (ovation) f = tgForecast({ om, met, smhi, kp, ovation }) || f;
+  }
   if (!f) throw new Error('No weather service answered');
 
   // hourLabel is the page's business, not the blend's.
