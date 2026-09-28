@@ -46,6 +46,29 @@ $('unit-kmh').addEventListener('click', () => pickWind('kmh'));
 $('unit-ms').addEventListener('click', () => pickWind('ms'));
 $('unit-mph').addEventListener('click', () => pickWind('mph'));
 
+/* Which services the last forecast actually came from, and when — read
+   from the forecast the Today page cached, so nothing is fetched here. */
+function creditName(key) {
+  for (const c of TG_CREDITS) if (c.key === key) return c.name;
+  return key;
+}
+
+function renderSources() {
+  const blend = $('blend-sources');
+  const at = $('fetched-at');
+  if (!blend || !at) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem('touchgrass.forecast') || 'null'); } catch {}
+  const sources = cached && cached.data && cached.data.sources;
+  if (!sources || !sources.length) { blend.textContent = ''; at.innerHTML = '&nbsp;'; return; }
+  const w = tgWeigh(sources);
+  blend.textContent = `${T().ui.blendedFrom} ` + tgCreditOrder(sources)
+    .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
+    .join(', ');
+  at.textContent = T().ui.updated(new Date(cached.at)
+    .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+}
+
 // Language touches every label on the page, including ones built by JS.
 function relabelEverything() {
   applyStatic();
@@ -55,6 +78,7 @@ function relabelEverything() {
   paintUnits();
   renderPreview();
   refreshBackup();
+  renderSources();
   $('btn-toggle-raw').textContent =
     $('raw-wrap').hidden ? T().ui.showTheData : T().ui.hideTheData;
   document.title = T().ui.settings + ' | Touch Grass';
@@ -722,3 +746,5 @@ paintUnits();
 buildDials();
 refreshBackup();
 loadSample();
+
+renderSources();

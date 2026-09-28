@@ -11,6 +11,9 @@
 html, body { margin: 0; padding: 0; }
 h1, h2, h3 { margin: 0; }
 
+/* hidden means hidden, whatever display a class sets. */
+[hidden] { display: none !important; }
+
 body {
   min-height: 100vh;
   background-color: var(--sun);
@@ -363,7 +366,8 @@ h2 {
 
 /* ---------- search ---------- */
 
-.search { display: flex; gap: 12px; margin: 12px 0 0; flex-wrap: wrap; }
+.place-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.search { display: flex; gap: 12px; margin: 14px 0 0; flex-wrap: wrap; }
 
 .search input {
   font-family: var(--fontA);

@@ -206,6 +206,28 @@
     </p>
   </section>
 
+  <!-- ============ SOURCES ============ -->
+  <section class="card sources">
+    <h2 data-t="sources">Where this comes from</h2>
+    <dl class="srclist">
+      <!-- Licence-bound, and it has to be true before any forecast has
+           landed, so it is static rather than filled in from data.sources.
+           The line below only breaks down this forecast's weights. -->
+      <dt data-t="sourceWeather">Weather and forecast</dt>
+      <dd><a href="https://www.met.no/" target="_blank" rel="noopener noreferrer">MET Norway (YR)</a>,
+          <a href="https://www.smhi.se/" target="_blank" rel="noopener noreferrer">SMHI</a>,
+          <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourceSun">Sunrise and sunset</dt>
+      <dd><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourcePlace">Town search</dt>
+      <dd><a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener noreferrer">Open-Meteo Geocoding</a></dd>
+    </dl>
+    <p class="hint" id="blend-sources"></p>
+    <p class="hint small" data-t="sourcesBlurb">Free, open weather data. No API key, no account, and your coordinates are sent to nobody else.</p>
+    <p class="hint small" id="fetched-at">&nbsp;</p>
+    <p class="hint small" data-t="sourceLicence">Data licensed CC BY 4.0.</p>
+  </section>
+
   <!-- ============ BACKUP ============ -->
   <section class="card">
     <h2 data-t="yourData">Your data</h2>
@@ -255,6 +277,7 @@
 </div>
 
 <script src="scoring.js"></script>
+<script src="blend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script src="settings.js"></script>

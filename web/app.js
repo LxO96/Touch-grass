@@ -154,31 +154,6 @@ function renderVerdict() {
   renderToday(visits);
   renderChart(data, s);
   pushWidget(v, place);
-
-  const credit = $('fetched-at');
-  if (credit) {
-    credit.textContent = T().ui.updated(clockTime(STATE.stale || STATE.fetchedAt || Date.now()));
-  }
-
-  const blend = $('blend-sources');
-  if (blend) {
-    // Heaviest first. data.sources arrives in whatever order the hours
-    // happened to name the services, which read as "Open-Meteo 25%, MET
-    // Norway 50%, SMHI 25%" — the least important source announced first.
-    const list = tgCreditOrder(data.sources || []);
-    const w = tgWeigh(data.sources || []);
-    blend.textContent = list.length
-      ? `${T().ui.blendedFrom} ` + list
-          .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
-          .join(', ')
-      : '';
-  }
-}
-
-/* The blend's own name for a source, from the one credits list. */
-function creditName(key) {
-  for (const c of TG_CREDITS) if (c.key === key) return c.name;
-  return key;
 }
 
 /* The page has just worked out the verdict; hand it to the widget so it
@@ -491,6 +466,16 @@ $('btn-undo').addEventListener('click', () => {
 
 $('btn-geo').addEventListener('click', () => askGeo(true));
 
+// SEARCH opens the town box and puts the cursor in it; pressing it again
+// folds it away. Picking a place folds it away too.
+function showSearch(open) {
+  $('search-form').hidden = !open;
+  $('btn-search').setAttribute('aria-expanded', String(open));
+  if (open) $('search-input').focus();
+  else { $('results').innerHTML = ''; $('search-input').value = ''; }
+}
+$('btn-search').addEventListener('click', () => showSearch($('search-form').hidden));
+
 $('search-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const q = $('search-input').value.trim();
@@ -511,7 +496,7 @@ $('search-form').addEventListener('submit', async (e) => {
       b.textContent = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
       b.addEventListener('click', () => {
         out.innerHTML = '';
-        $('search-input').value = '';
+        showSearch(false);
         load({ lat: r.latitude, lon: r.longitude, label: r.name, named: true });
       });
       out.append(b);
