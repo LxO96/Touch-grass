@@ -11,6 +11,8 @@
       "code": 2,
       "isDay": false,
       "twilight": null,
+      "novelty": null,
+      "noveltyDays": null,
       "hoursFromNow": 0,
       "contributors": [
         "met",
@@ -30,6 +32,8 @@
         "code": 2,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 1,
         "contributors": [
           "met",
@@ -48,6 +52,8 @@
         "code": 61,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -65,6 +71,8 @@
         "code": 61,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -81,6 +89,8 @@
         "code": 3,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -97,6 +107,8 @@
         "code": 3,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"
@@ -122,6 +134,8 @@
       "code": 61,
       "isDay": false,
       "twilight": null,
+      "novelty": null,
+      "noveltyDays": null,
       "hoursFromNow": 0,
       "contributors": [
         "smhi",
@@ -140,6 +154,8 @@
         "code": 63,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 1,
         "contributors": [
           "smhi",
@@ -157,6 +173,8 @@
         "code": 61,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 2,
         "contributors": [
           "smhi",
@@ -174,6 +192,8 @@
         "code": 61,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 3,
         "contributors": [
           "om"
@@ -190,6 +210,8 @@
         "code": 3,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 4,
         "contributors": [
           "om"
@@ -206,6 +228,8 @@
         "code": 3,
         "isDay": false,
         "twilight": null,
+        "novelty": null,
+        "noveltyDays": null,
         "hoursFromNow": 5,
         "contributors": [
           "om"

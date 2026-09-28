@@ -161,6 +161,10 @@ en: {
       dusk: 'Dusk',
       dawn: 'Dawn',
       sky: 'Sky',
+      firstRain: 'First rain',
+      firstSnow: 'First snow of the season',
+      firstSun: 'First sun',
+      firstWarm: 'First warm day',
       code: 'The weather itself'
     },
     footer: 'go outside',
@@ -212,6 +216,10 @@ en: {
     skiesTitle: 'Kinds of weather',
     skiesBlurb: "Drag each kind of weather into a band — or tap one, then tap the band it belongs in. This is how the sky feels; getting wet still counts separately. Thunder isn't here: it always counts, for safety.",
     skyEmpty: 'Nothing here yet',
+    dryDays: (n) => `${n} days since it last rained`,
+    greyDays: (n) => `after ${n} grey days`,
+    noveltyToggle: 'Firsts are worth a bonus',
+    noveltyBlurb: "The first rain after two dry weeks, the season's first snow, the first sun after a grey week, the first warm day of spring: +15 on those hours.",
     skyPickHint: (name) => `Now tap the band for ${name}.`,
     skyKinds: {
       clear: 'Clear sky', mostlyClear: 'Mostly clear', partly: 'Partly cloudy',
@@ -485,6 +493,10 @@ sv: {
       dusk: 'Skymning',
       dawn: 'Gryning',
       sky: 'Himlen',
+      firstRain: 'Första regnet',
+      firstSnow: 'Säsongens första snö',
+      firstSun: 'Första solen',
+      firstWarm: 'Första varma dagen',
       code: 'Själva vädret'
     },
     footer: 'gå ut',
@@ -534,6 +546,10 @@ sv: {
     skiesTitle: 'Olika sorters väder',
     skiesBlurb: 'Dra varje sorts väder till ett band — eller tryck på en och sedan på bandet den hör hemma i. Det här är hur himlen känns; att bli blöt räknas fortfarande för sig. Åska finns inte här: den räknas alltid, för säkerhetens skull.',
     skyEmpty: 'Inget här än',
+    dryDays: (n) => `${n} dagar sedan det regnade`,
+    greyDays: (n) => `efter ${n} grå dagar`,
+    noveltyToggle: 'Förstagånger ger bonus',
+    noveltyBlurb: 'Första regnet efter två torra veckor, säsongens första snö, första solen efter en grå vecka, vårens första varma dag: +15 på de timmarna.',
     skyPickHint: (name) => `Tryck nu på bandet för ${name}.`,
     skyKinds: {
       clear: 'Klart', mostlyClear: 'Mest klart', partly: 'Halvklart',

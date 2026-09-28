@@ -142,6 +142,7 @@ function buildSkies() {
   if (!host) return;
   host.innerHTML = '';
   const L = T().ui;
+  paintNovelty();
 
   const hint = document.createElement('p');
   hint.className = 'hint small sky-hint';
@@ -218,6 +219,21 @@ function buildSkies() {
 
     band.append(head, list);
     host.append(band);
+  });
+}
+
+/* The firsts switch lives on the same card; built with it so a restore or
+   a reset leaves it showing the truth. */
+function paintNovelty() {
+  const box = $('novelty');
+  if (box) box.checked = SETTINGS.novelty !== false;
+}
+
+if ($('novelty')) {
+  $('novelty').addEventListener('change', () => {
+    SETTINGS.novelty = $('novelty').checked;
+    saveSettings(SETTINGS);
+    renderPreview();
   });
 }
 

@@ -1852,6 +1852,151 @@ check('every kind of weather has an icon', (() => {
   return TG_SKY_ORDER.filter((k) => !SKY_ICONS[k]).join(',') || 'all';
 })(), 'all');
 
+/* ================= firsts are worth a bonus ================= */
+
+// The first rain after two dry weeks, the first snow of the season, the
+// first sun after a grey week, the first warm day of spring: each earns
+// +15 on the hours it happens, today. History comes from Open-Meteo's
+// daily past_days, so it costs no extra request.
+
+// n days of history, oldest first, then today; `f` fills each field.
+function history(n, f) {
+  const days = { time: [], precipitation_sum: [], snowfall_sum: [],
+                 sunshine_duration: [], apparent_temperature_max: [] };
+  for (let i = 0; i <= n; i++) {
+    const dt = new Date(Date.UTC(2026, 8, 28) - (n - i) * 86400000);
+    days.time.push(dt.toISOString().slice(0, 10));
+    const v = f(n - i);   // days ago: n .. 0 (0 is today)
+    days.precipitation_sum.push(v.rain || 0);
+    days.snowfall_sum.push(v.snow || 0);
+    days.sunshine_duration.push(v.sun === undefined ? 6 * 3600 : v.sun);
+    days.apparent_temperature_max.push(v.warm === undefined ? 20 : v.warm);
+  }
+  return days;
+}
+const today = '2026-09-28';
+
+check('rain after 14 dry days is a first, and says how long it was dry',
+  tgNovelty(history(30, (ago) => ({ rain: ago === 16 ? 5 : 0 })), today).rain, 16);
+
+check('rain after 13 dry days is not',
+  tgNovelty(history(30, (ago) => ({ rain: ago === 13 ? 5 : 0 })), today).rain, null);
+
+check('a wet spell under 1 mm a day still counts as dry',
+  tgNovelty(history(30, () => ({ rain: 0.4 })), today).rain, 30);
+
+check('no snow in the whole season so far makes the first snow a first',
+  tgNovelty(history(90, () => ({ sun: 3600 * 5 })), today).snow, true);
+
+check('snow earlier in the season means it is not the first',
+  tgNovelty(history(90, (ago) => ({ snow: ago === 40 ? 2 : 0 })), today).snow, false);
+
+check('too little history to know is not claimed as a first',
+  tgNovelty(history(20, () => ({})), today).snow, false);
+
+check('sun after a grey week is a first, and says how grey it was',
+  tgNovelty(history(30, (ago) => ({ sun: ago >= 1 && ago <= 9 ? 600 : 6 * 3600 })), today).sun, 9);
+
+check('six grey days are not enough',
+  tgNovelty(history(30, (ago) => ({ sun: ago >= 1 && ago <= 6 ? 600 : 6 * 3600 })), today).sun, null);
+
+check('the first 15-degree day after a cold spell is a first',
+  tgNovelty(history(90, () => ({ warm: 8 })), today).warm, true);
+
+check('a warm day after warm days is not',
+  tgNovelty(history(90, (ago) => ({ warm: ago === 50 ? 18 : 8 })), today).warm, false);
+
+check('no history, no firsts', (() => {
+  const n = tgNovelty(null, today);
+  return [n.rain, n.snow, n.sun, n.warm].join(',');
+})(), ',false,,false');
+
+// Integrated: an Open-Meteo payload with 30 dry days, rain this afternoon
+// and tomorrow. Only today's rainy hours earn it.
+const NOVEL_OM = (() => {
+  const hours = [], codes = [], isDay = [], feels = [];
+  for (let i = 0; i < 30; i++) {
+    const day = i < 11 ? '2026-09-28' : '2026-09-29';
+    const h = (13 + i) % 24;
+    hours.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    codes.push(h === 15 || h === 16 || h === 0 ? 63 : 3);   // rain at 15, 16 and midnight
+    isDay.push(h >= 7 && h < 19 ? 1 : 0);
+    feels.push(12);
+  }
+  const n = hours.length, fill = (v) => Array.from({ length: n }, () => v);
+  const daily = history(30, () => ({}));
+  daily.time.push('2026-09-29');
+  daily.precipitation_sum.push(4); daily.snowfall_sum.push(0);
+  daily.sunshine_duration.push(0); daily.apparent_temperature_max.push(12);
+  daily.sunset = daily.time.map((t) => (t === today ? `${t}T18:41` : `${t}T20:00`));
+  return {
+    utc_offset_seconds: 7200,
+    current: { time: '2026-09-28T13:10' },
+    hourly: { time: hours, weather_code: codes, is_day: isDay,
+      temperature_2m: fill(13), apparent_temperature: feels,
+      precipitation_probability: fill(20), precipitation: fill(0),
+      wind_speed_10m: fill(8) },
+    daily
+  };
+})();
+
+const novelRow = (hour, day) => {
+  const f = tgForecast({ om: NOVEL_OM });
+  return [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+};
+
+check('today\'s rainy hour after a dry spell is marked first rain',
+  novelRow(15).novelty + ':' + novelRow(15).noveltyDays, 'rain:30');
+
+check('a dry hour on the same day is not', novelRow(14).novelty, null);
+
+check('rain just after midnight belongs to tomorrow, and earns nothing today',
+  novelRow(0).novelty, null);
+
+check('sunset is today\'s, not the oldest day in the history',
+  tgForecast({ om: NOVEL_OM }).sunsetMin, 18 * 60 + 41);
+
+// Scoring: +15 on the hour, as its own row, with an off switch.
+const firstRain = (o) => at(Object.assign(
+  { code: 63, pop: 60, novelty: 'rain', noveltyDays: 16 }, o || {}));
+
+check('a first earns 15',
+  scoreHour(firstRain(), S) - scoreHour(firstRain({ novelty: null }), S), 15);
+
+check('the novelty bonus can be switched off',
+  scoreHour(firstRain(), Object.assign({}, S, { novelty: false })),
+  scoreHour(firstRain({ novelty: null }), S));
+
+check('a first shows as its own row, and says why', (() => {
+  const e = tgExplainHour(firstRain(), S);
+  const row = e.parts.filter((p) => p.key === 'firstRain')[0];
+  return row ? row.amount + ' / ' + factorFact('firstRain', firstRain()) : 'no row';
+})(), '15 / ' + T().ui.dryDays(16));
+
+check('the bonus is on by default', DEFAULTS.novelty, true);
+
+check('switching it off is remembered', (() => {
+  const real = localStorage.getItem('touchgrass.settings');
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ novelty: false }));
+  const v = getSettings().novelty;
+  if (real === null) localStorage.removeItem('touchgrass.settings');
+  else localStorage.setItem('touchgrass.settings', real);
+  return v;
+})(), false);
+
+check('every first is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return ['firstRain', 'firstSnow', 'firstSun', 'firstWarm'].every((k) => !!u.factors[k]) &&
+           typeof u.dryDays === 'function' && typeof u.greyDays === 'function' &&
+           !!u.noveltyToggle;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

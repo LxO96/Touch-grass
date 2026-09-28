@@ -28,6 +28,7 @@ const DEFAULTS = {
   dark: 1,    // darkness, and the small hours
   twilight: 1, // dusk and dawn: 0 just dark, 1 no dark penalty, 2 a bonus
   sky: Object.assign({}, TG_SKY_DEFAULTS),  // 0 love it .. 4 hate it, per kind
+  novelty: true,  // firsts earn a bonus
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -62,6 +63,7 @@ function getSettings() {
     // tgSkyRating is the one place that decides what "valid" means.
     s.sky = {};
     for (const k of TG_SKY_ORDER) s.sky[k] = tgSkyRating(raw.sky, k);
+    s.novelty = raw.novelty !== false;
     return s;
   } catch { return freshDefaults(); }
 }
@@ -575,6 +577,12 @@ function factorFact(key, h) {
     case 'code':
     case 'sky':
       return skyName(h.code);
+    case 'firstRain':
+      return h.noveltyDays ? T().ui.dryDays(h.noveltyDays) : '';
+    case 'firstSun':
+      return h.noveltyDays ? T().ui.greyDays(h.noveltyDays) : '';
+    case 'firstWarm':
+      return fmtTemp(tgNum(h.feels, 16), u);
     // Dark is dark, and 3am is 3am. Neither needs a number.
     default:
       return '';

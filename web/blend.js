@@ -359,6 +359,78 @@ function tgTwilight(byTime, stamp, isDay) {
   return null;
 }
 
+/* ----------------------------------------------------------
+   Firsts.
+
+   The first rain after two dry weeks, the season's first snow, the first
+   sun after a grey week, the first warm day of spring: rarer than the
+   weather itself, and worth going out for. Read from Open-Meteo's daily
+   history (past_days), so it costs no extra request, and decided for
+   today only — the day the verdict is about.
+   ---------------------------------------------------------- */
+var TG_NOVEL = {
+  dryDays: 14,        // days since the last rain before rain is a first
+  rainMm: 1,          // a day with at least this much counts as wet
+  snowCm: 0.5,        // a day with at least this much snowfall counts as snowy
+  greyDays: 7,        // grey days in a row before sun is a first
+  greySec: 3600,      // a day with less sunshine than this counts as grey
+  warmFeels: 15,      // feels-like that makes a warm day
+  seasonDays: 30      // history needed before "first of the season" is claimed
+};
+
+/* What makes today special, given the daily history. rain and sun carry a
+   day count (days since rain; grey days in a row) or null; snow and warm
+   are true or false. Never claims a first it has too little history for. */
+function tgNovelty(daily, today) {
+  var out = { rain: null, snow: false, sun: null, warm: false };
+  if (!daily || !daily.time) return out;
+
+  var t = -1, i;
+  for (i = 0; i < daily.time.length; i++) {
+    if (daily.time[i] === today) { t = i; break; }
+  }
+  if (t < 1) return out;
+
+  var rain = daily.precipitation_sum || [];
+  var snow = daily.snowfall_sum || [];
+  var sun = daily.sunshine_duration || [];
+  var warm = daily.apparent_temperature_max || [];
+
+  // Days since it last rained, counting back from yesterday.
+  var dry = 0;
+  for (i = t - 1; i >= 0 && tgNum(rain[i], 0) < TG_NOVEL.rainMm; i--) dry++;
+  var since = i >= 0 ? dry + 1 : dry;
+  if (since >= TG_NOVEL.dryDays) out.rain = since;
+
+  // Grey days in a row, counting back from yesterday.
+  var grey = 0;
+  for (i = t - 1; i >= 0 && tgNum(sun[i], TG_NOVEL.greySec) < TG_NOVEL.greySec; i--) grey++;
+  if (grey >= TG_NOVEL.greyDays) out.sun = grey;
+
+  // Firsts of the season need enough season behind them to mean it.
+  if (t >= TG_NOVEL.seasonDays) {
+    var snowed = false, warmed = false;
+    for (i = 0; i < t; i++) {
+      if (tgNum(snow[i], 0) >= TG_NOVEL.snowCm) snowed = true;
+      if (tgNum(warm[i], 0) >= TG_NOVEL.warmFeels) warmed = true;
+    }
+    out.snow = !snowed;
+    out.warm = !warmed;
+  }
+  return out;
+}
+
+/* Which first, if any, an hour of today earns. One per hour; the rarest
+   wins. */
+function tgNoveltyFor(nov, row) {
+  var kind = tgSkyKind(row.code);
+  if (nov.snow && kind === 'snow') return { kind: 'snow', days: null };
+  if (nov.rain !== null && (kind === 'rain' || kind === 'drizzle')) return { kind: 'rain', days: nov.rain };
+  if (nov.sun !== null && row.isDay && (kind === 'clear' || kind === 'mostlyClear')) return { kind: 'sun', days: nov.sun };
+  if (nov.warm && tgNum(row.feels, 0) >= TG_NOVEL.warmFeels) return { kind: 'warm', days: null };
+  return { kind: null, days: null };
+}
+
 function tgLocalToUtc(local, offsetSeconds) {
   if (typeof local !== 'string' || local.length < 16) return null;
   var y = parseInt(local.slice(0, 4), 10);
@@ -383,9 +455,9 @@ function tgColumn(H, name) {
 }
 
 function tgNormaliseOm(d) {
-  var res = { hours: [],
-              daylight: { byTime: {}, localHourByTime: {},
-                          sunsetMin: null, nowUtc: null } };
+  var res = { hours: [], history: null,
+              daylight: { byTime: {}, localHourByTime: {}, localDateByTime: {},
+                          sunsetMin: null, nowUtc: null, today: null } };
   if (!d || !d.hourly || !d.hourly.time || !d.hourly.time.length) return res;
 
   var off = tgNum(d.utc_offset_seconds, 0);
@@ -410,6 +482,7 @@ function tgNormaliseOm(d) {
   var cur = d.current && typeof d.current.time === 'string' &&
             d.current.time.length >= 13 ? d.current.time.slice(0, 13) + ':00' : null;
   res.daylight.nowUtc = cur === null ? null : tgLocalToUtc(cur, off);
+  res.daylight.today = cur === null ? null : cur.slice(0, 10);
 
   for (i = 0; i < times.length; i++) {
     var utc = tgLocalToUtc(times[i], off);
@@ -425,9 +498,19 @@ function tgNormaliseOm(d) {
     });
     res.daylight.byTime[utc] = tgNum(isDays[i], 0) === 1;
     res.daylight.localHourByTime[utc] = parseInt(times[i].slice(11, 13), 10);
+    res.daylight.localDateByTime[utc] = times[i].slice(0, 10);
   }
 
-  var sunset = d.daily && d.daily.sunset && d.daily.sunset[0];
+  // The daily block now carries weeks of history for the firsts, so its
+  // first row is no longer today: find today's by date.
+  res.history = d.daily || null;
+  var di = 0;
+  if (d.daily && d.daily.time && res.daylight.today) {
+    for (i = 0; i < d.daily.time.length; i++) {
+      if (d.daily.time[i] === res.daylight.today) { di = i; break; }
+    }
+  }
+  var sunset = d.daily && d.daily.sunset && d.daily.sunset[di];
   if (sunset && sunset.length >= 16) {
     res.daylight.sunsetMin = parseInt(sunset.slice(11, 13), 10) * 60 +
                              parseInt(sunset.slice(14, 16), 10);
@@ -474,6 +557,7 @@ function tgForecast(raw) {
 
   var seen = {};
   var rows = [];
+  var novelty = tgNovelty(spine.history, spine.daylight.today);
   var i, m;
   for (i = 0; i < blended.length; i++) {
     var b = blended[i];
@@ -488,8 +572,15 @@ function tgForecast(raw) {
       time: b.time, hour: localHour, feels: b.feels, temp: b.temp,
       pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
       isDay: isDay, twilight: tgTwilight(spine.daylight.byTime, b.time, isDay),
+      novelty: null, noveltyDays: null,
       hoursFromNow: 0, contributors: b.sources
     });
+    var row = rows[rows.length - 1];
+    if (spine.daylight.localDateByTime[b.time] === spine.daylight.today) {
+      var first = tgNoveltyFor(novelty, row);
+      row.novelty = first.kind;
+      row.noveltyDays = first.days;
+    }
   }
   if (!rows.length) return null;
 

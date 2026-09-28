@@ -148,6 +148,12 @@ function tgExplainHour(h, dials) {
   } else if (!h.isDay) {
     take('dark', 38 * dark, false);
   }
+
+  // --- a first: the first rain after a dry spell, the season's first
+  //     snow, the first sun after a grey week, the first warm day of spring
+  if (h.novelty && dials.novelty !== false) {
+    take('first' + h.novelty.charAt(0).toUpperCase() + h.novelty.slice(1), -15, false);
+  }
   if (tgIsDeepNight(h.hour)) take('night', 25 * dark, false);
 
   // --- the kind of weather: thunder is safety and never discounted;

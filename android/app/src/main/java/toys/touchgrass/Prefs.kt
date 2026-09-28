@@ -52,6 +52,7 @@ object Prefs {
             putFloat("dark", s.optDouble("dark", 1.0).toFloat())
             putFloat("twilight", s.optDouble("twilight", 1.0).toFloat())
             putString("sky", (s.optJSONObject("sky") ?: org.json.JSONObject()).toString())
+            putBoolean("novelty", s.optBoolean("novelty", true))
             putInt("bar", s.optInt("bar", 60))
 
             putInt("visitsToday", o.optInt("visitsToday", 0))
@@ -82,6 +83,7 @@ object Prefs {
         dark = sp(c).getFloat("dark", 1f).toDouble(),
         twilight = sp(c).getFloat("twilight", 1f).toDouble(),
         sky = skyRatings(c),
+        novelty = sp(c).getBoolean("novelty", true),
         bar = sp(c).getInt("bar", 60)
     )
 

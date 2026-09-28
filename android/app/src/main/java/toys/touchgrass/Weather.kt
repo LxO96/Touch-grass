@@ -127,7 +127,9 @@ object Weather {
             "&hourly=temperature_2m,apparent_temperature," +
             "precipitation_probability,precipitation,weather_code," +
             "wind_speed_10m,is_day" +
-            "&daily=sunset&forecast_days=2&timezone=auto"
+            "&daily=sunset,precipitation_sum,snowfall_sum,sunshine_duration," +
+            "apparent_temperature_max&past_days=92&past_hours=1&forecast_hours=48" +
+            "&forecast_days=2&timezone=auto"
 
     private fun metUrl(lat: Double, lon: Double) =
         "https://api.met.no/weatherapi/locationforecast/2.0/complete" +
@@ -172,6 +174,8 @@ object Weather {
             isDay = o.getBoolean("isDay"),
             code = o.getInt("code"),
             twilight = if (o.isNull("twilight")) null else o.optString("twilight").ifEmpty { null },
+            novelty = if (o.isNull("novelty")) null else o.optString("novelty").ifEmpty { null },
+            noveltyDays = if (o.isNull("noveltyDays")) null else o.optInt("noveltyDays"),
             hoursFromNow = k,
             label = label(o.getInt("hour"))
         )

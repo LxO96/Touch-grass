@@ -28,6 +28,8 @@ object Scoring {
         val twilight: Double = 1.0,
         /** Kind of weather to rating, 0 love it .. 4 hate it; missing kinds use scoring.js's defaults. */
         val sky: Map<String, Int> = emptyMap(),
+        /** Whether firsts earn their bonus. */
+        val novelty: Boolean = true,
         val bar: Int = 60
     )
 
@@ -41,6 +43,9 @@ object Scoring {
         val code: Int,
         /** "dusk", "dawn" or null — marked by blend.js from Open-Meteo's daylight. */
         val twilight: String? = null,
+        /** "rain", "snow", "sun", "warm" or null — a first, marked by blend.js. */
+        val novelty: String? = null,
+        val noveltyDays: Int? = null,
         val hoursFromNow: Int = 0,
         val label: String = ""
     )
@@ -210,12 +215,14 @@ object Scoring {
     private fun dialsJson(d: Dials): String =
         """{"rain":${d.rain},"cold":${d.cold},"heat":${d.heat},""" +
         """"wind":${d.wind},"dark":${d.dark},"twilight":${d.twilight},"bar":${d.bar},""" +
-        """"sky":${org.json.JSONObject(d.sky as Map<*, *>)}}"""
+        """"sky":${org.json.JSONObject(d.sky as Map<*, *>)},"novelty":${d.novelty}}"""
 
     private fun hourJson(h: Hour): String =
         """{"hour":${h.hour},"feels":${h.feels},"pop":${h.pop},"precip":${h.precip},""" +
         """"wind":${h.wind},"isDay":${h.isDay},"code":${h.code},""" +
         """"twilight":${h.twilight?.let { quote(it) } ?: "null"},""" +
+        """"novelty":${h.novelty?.let { quote(it) } ?: "null"},""" +
+        """"noveltyDays":${h.noveltyDays ?: "null"},""" +
         """"hoursFromNow":${h.hoursFromNow},"label":${quote(h.label)}}"""
 
     private fun quote(s: String): String = org.json.JSONObject.quote(s)

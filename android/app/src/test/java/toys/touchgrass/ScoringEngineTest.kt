@@ -426,4 +426,16 @@ class ScoringEngineTest {
         assertEquals(100, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 0))))
         assertEquals(65, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 4))))
     }
+
+    // A first must reach Rhino, or the widget would miss the first snow
+    // of the season that the page celebrates.
+    @Test
+    fun `a first earns its bonus through Rhino, and can be switched off`() {
+        val wet = Scoring.Hour(hour = 14, feels = 14.0, pop = 60.0, precip = 0.0,
+            wind = 5.0, isDay = true, code = 63)
+        val first = wet.copy(novelty = "rain", noveltyDays = 16)
+        assertEquals(15, Scoring.score(first, Scoring.Dials()) - Scoring.score(wet, Scoring.Dials()))
+        assertEquals(Scoring.score(wet, Scoring.Dials()),
+            Scoring.score(first, Scoring.Dials(novelty = false)))
+    }
 }
