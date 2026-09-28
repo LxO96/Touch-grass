@@ -2008,6 +2008,21 @@ check('a day already past five (from the Today button) can still come down',
 check('a day already past five is not pushed further up', stepTrips(8, +1), 8);
 check('the most the popup allows is five', TRIPS_MAX, 5);
 
+/* ================= sliding between months ================= */
+
+const SEPT = new Date(2026, 8, 28);   // "now" for these
+
+check('back from January is December of the year before',
+  JSON.stringify(shiftMonth(2026, 0, -1, SEPT)), JSON.stringify({ year: 2025, month: 11 }));
+check('forward from December is January of the next year',
+  JSON.stringify(shiftMonth(2025, 11, +1, SEPT)), JSON.stringify({ year: 2026, month: 0 }));
+check('forward from last month reaches this month',
+  JSON.stringify(shiftMonth(2026, 7, +1, SEPT)), JSON.stringify({ year: 2026, month: 8 }));
+check('forward from this month goes nowhere: it has not happened yet',
+  shiftMonth(2026, 8, +1, SEPT), null);
+check('back is always allowed',
+  JSON.stringify(shiftMonth(2026, 8, -1, SEPT)), JSON.stringify({ year: 2026, month: 7 }));
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

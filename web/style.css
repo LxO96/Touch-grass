@@ -924,7 +924,9 @@ input[type=time].mini { font-size: 20px; padding: 1px 5px; }
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
+  touch-action: pan-y;   /* sideways is ours, for changing month */
 }
+#month-view { overflow: hidden; }
 
 .mgrid-head {
   font-size: 16px;

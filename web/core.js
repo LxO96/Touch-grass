@@ -269,6 +269,16 @@ function saveLog(log) {
    but never pushes it further up. */
 const TRIPS_MAX = 5;
 
+/* The month `delta` away from year/month, or null if that month has not
+   happened yet — there is nothing to log in the future. */
+function shiftMonth(year, month, delta, now) {
+  const d = new Date(year, month + delta, 1);
+  const n = now || new Date();
+  if (d.getFullYear() > n.getFullYear() ||
+      (d.getFullYear() === n.getFullYear() && d.getMonth() > n.getMonth())) return null;
+  return { year: d.getFullYear(), month: d.getMonth() };
+}
+
 function stepTrips(n, delta) {
   if (delta > 0) return n >= TRIPS_MAX ? n : n + 1;
   return Math.max(0, n - 1);

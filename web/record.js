@@ -273,21 +273,85 @@ wireDayTaps('cal');
 $('view-month').addEventListener('click', () => { saveCalView('month'); renderRecord(); });
 $('view-year').addEventListener('click', () => { saveCalView('year'); renderRecord(); });
 
-$('prev-month').addEventListener('click', () => {
-  CAL.month--;
-  if (CAL.month < 0) { CAL.month = 11; CAL.year--; }
+function stepMonth(delta) {
+  const to = shiftMonth(CAL.year, CAL.month, delta);
+  if (!to) return false;
+  CAL.year = to.year;
+  CAL.month = to.month;
   renderRecord();
-});
+  return true;
+}
 
-$('next-month').addEventListener('click', () => {
-  const now = new Date();
-  // No point walking into months that haven't happened.
-  if (CAL.year > now.getFullYear() ||
-      (CAL.year === now.getFullYear() && CAL.month >= now.getMonth())) return;
-  CAL.month++;
-  if (CAL.month > 11) { CAL.month = 0; CAL.year++; }
-  renderRecord();
-});
+$('prev-month').addEventListener('click', () => stepMonth(-1));
+$('next-month').addEventListener('click', () => stepMonth(+1));
+
+/* Slide a finger sideways across the month to change it. The grid follows
+   the finger, and a swipe past a quarter of its width (or a quick flick)
+   turns the page; anything less springs back. Vertical movement is left to
+   the page, so scrolling still works, and the press-and-hold on a day
+   already gives up as soon as the finger moves. */
+(function swipeMonths() {
+  const host = $('month-view');
+  const grid = $('mgrid');
+  let x0 = 0, y0 = 0, t0 = 0, dx = 0, tracking = false, sideways = false;
+
+  const settle = (to, then) => {
+    grid.style.transition = 'transform 160ms ease-out';
+    grid.style.transform = `translateX(${to}px)`;
+    setTimeout(() => {
+      grid.style.transition = '';
+      grid.style.transform = '';
+      if (then) then();
+    }, 170);
+  };
+
+  host.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.stepbtn')) return;
+    tracking = true; sideways = false;
+    x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); dx = 0;
+  });
+
+  host.addEventListener('pointermove', (e) => {
+    if (!tracking) return;
+    dx = e.clientX - x0;
+    const dy = e.clientY - y0;
+    if (!sideways) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
+      if (Math.abs(dx) > 12) sideways = true;
+    }
+    if (sideways) grid.style.transform = `translateX(${dx}px)`;
+  });
+
+  const end = () => {
+    if (!tracking) return;
+    tracking = false;
+    if (!sideways) return;
+    const width = grid.offsetWidth || 300;
+    const quick = Math.abs(dx) > 40 && Date.now() - t0 < 250;
+    const delta = dx < 0 ? +1 : -1;               // left shows the next month
+    if ((Math.abs(dx) > width / 4 || quick) && shiftMonth(CAL.year, CAL.month, delta)) {
+      settle(dx < 0 ? -width : width, () => {
+        stepMonth(delta);
+        // The new month comes in from the other side.
+        grid.style.transform = `translateX(${dx < 0 ? width : -width}px)`;
+        requestAnimationFrame(() => settle(0));
+      });
+    } else {
+      settle(0);                                    // not far enough, or the future
+    }
+    swipedAt = Date.now();
+  };
+
+  // A swipe is not a tap on whichever day it started on — but only the
+  // click that immediately follows it; the next real tap goes through.
+  let swipedAt = 0;
+  host.addEventListener('click', (ev) => {
+    if (Date.now() - swipedAt < 400) { ev.stopPropagation(); ev.preventDefault(); }
+  }, true);
+
+  host.addEventListener('pointerup', end);
+  host.addEventListener('pointercancel', () => { tracking = false; settle(0); });
+})();
 
 /* ---------- go ---------- */
 
