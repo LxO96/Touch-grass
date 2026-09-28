@@ -22,8 +22,8 @@ android {
         applicationId = "toys.touchgrass"
         minSdk = 24
         targetSdk = 37
-        versionCode = 2
-        versionName = "0.2"
+        versionCode = 3
+        versionName = "0.3"
     }
 
     /* The release key. Kept outside the repository — a keystore in a

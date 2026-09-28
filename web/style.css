@@ -603,11 +603,16 @@ footer {
 
 .sky-row { margin: 14px 0 18px; }
 .sky-name { display: block; font-size: 24px; margin-bottom: 6px; }
-.sky-opts { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Five equal buttons on one line, so the scale reads left to right. */
+.sky-opts { display: flex; gap: 4px; }
 .sky-opt {
+  flex: 1 1 0;
+  min-width: 0;
   font: inherit;
-  font-size: 16px;
-  padding: 4px 10px;
+  font-size: 15px;
+  line-height: 1.1;
+  padding: 6px 2px;
+  text-align: center;
   background: #fff;
   color: var(--ink);
   border: 2px solid var(--ink);
