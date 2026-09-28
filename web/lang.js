@@ -118,7 +118,8 @@ en: {
     next12Hint: 'Taller bar = better grass-touching weather.',
 
     theYear: 'The year',
-    calHint: 'Tap any day to correct it.',
+    calHint: 'Press and hold a day to change it.',
+    holdToChange: 'Hold it to change.',
     viewMonth: 'MONTH', viewYear: 'YEAR',
     dayStreak: 'DAY STREAK', daysOut: 'DAYS OUT',
     trips: 'TRIPS', bestRun: 'BEST RUN',
@@ -451,7 +452,8 @@ sv: {
     next12Hint: 'Högre stapel = bättre väder för att röra gräs.',
 
     theYear: 'Året',
-    calHint: 'Tryck på en dag för att rätta den.',
+    calHint: 'Håll inne på en dag för att ändra den.',
+    holdToChange: 'Håll inne för att ändra.',
     viewMonth: 'MÅNAD', viewYear: 'ÅR',
     dayStreak: 'DAGAR I RAD', daysOut: 'DAGAR UTE',
     trips: 'TURER', bestRun: 'BÄSTA SVIT',

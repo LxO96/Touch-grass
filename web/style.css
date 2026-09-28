@@ -428,7 +428,20 @@ footer {
    NAV
    ========================================================== */
 
-.nav { display: flex; gap: 12px; margin: -14px 0 26px; flex-wrap: wrap; }
+/* The tabs stay pinned while the big title scrolls away above them. */
+.nav {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 20;
+  margin: -14px -20px 26px;
+  padding: 10px 20px;
+  /* See-through at rest so the graph paper shows; solid once pinned, so
+     the page scrolls cleanly underneath. */
+  background: transparent;
+  border-bottom: 3px solid transparent;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+body.scrolled .nav { background-color: var(--sun); border-bottom-color: var(--ink); }
+h1 { transition: opacity 80ms linear; }
 
 .navlink {
   font-family: var(--fontA);
@@ -502,49 +515,19 @@ footer {
 .scorebox .n { font-size: 34px; line-height: 1; }
 .scorebox .l { font-size: 14px; letter-spacing: 2px; opacity: 0.7; }
 
-/* wide content scrolls inside its own box, never the page */
-.cal-scroll { overflow-x: auto; padding-bottom: 6px; }
-
+/* The year: twelve month columns, thirty-one day rows. */
 .cal {
-  --cell: 11px;
-  display: flex;
-  gap: 6px;
-  width: max-content;
-}
-
-.cal-gutter {
   display: grid;
-  grid-template-rows: repeat(7, var(--cell));
-  gap: 2px;
-  font-size: 12px;
-  padding-top: 20px;   /* clears the month strip */
-  opacity: 0.7;
+  grid-template-columns: 2.2em repeat(12, 1fr);
+  gap: 3px;
+  width: 100%;
 }
-
-.cal-gutter span { line-height: var(--cell); white-space: nowrap; }
-
-.cal-stack { display: flex; flex-direction: column; }
-
-.cal-months {
-  display: grid;
-  gap: 2px;
-  font-size: 13px;
-  height: 20px;
-  opacity: 0.75;
-}
-
-.cal-months span { white-space: nowrap; }
-
-.cal-grid {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, var(--cell));
-  gap: 2px;
-}
+.yc-month { font-size: 14px; text-align: center; opacity: 0.75; }
+.yc-day { font-size: 13px; text-align: right; padding-right: 4px; opacity: 0.6; line-height: 16px; }
 
 .cell {
-  width: var(--cell);
-  height: var(--cell);
+  width: 100%;
+  height: 16px;
   padding: 0;
   border: 1px solid rgba(48, 62, 78, 0.35);
   background: white;
@@ -721,7 +704,6 @@ input[type=range].off::-moz-range-thumb { background: var(--rose); }
   .dial-name { font-size: 24px; }
   .scorebox .n { font-size: 26px; }
   .scorebox .l { font-size: 12px; }
-  .cal { --cell: 11px; }
   /* 2x2 instead of an orphaned fourth box */
   .scorebox { flex: 1 1 calc(50% - 6px); }
   .scorebar { gap: 10px; }
@@ -1046,3 +1028,18 @@ h2.spaced { margin-top: 26px; }
   .datasum { font-size: 21px; }
   .since { font-size: 18px; }
 }
+
+/* Press and hold: the cell sinks while it is being held. */
+.cell, .mcell {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.cell.holding, .mcell.holding {
+  outline: 3px solid var(--ink);
+  outline-offset: 1px;
+  transform: scale(0.9);
+  transition: transform 500ms ease;
+}
+.day-note { min-height: 1.3em; margin-top: 2px; }

@@ -176,12 +176,19 @@ class MainActivity : AppCompatActivity() {
             )
             setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.sun))
         }
-        setContentView(web)
+        // A WebView ignores its own padding for the page it draws, so padding
+        // the WebView let the page scroll up under the status bar. Pad a plain
+        // container instead and the page itself stays clear of it.
+        val frame = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.sun))
+            addView(web)
+        }
+        setContentView(frame)
 
         // Edge-to-edge is mandatory from API 35, so inset the page by hand.
-        // The window background is the same mustard as the page, so the
-        // status bar strip blends into the header instead of cutting it off.
-        ViewCompat.setOnApplyWindowInsetsListener(web) { view, insets ->
+        // The container is the same mustard as the page, so the status bar
+        // strip blends into the header instead of cutting it off.
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { view, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )

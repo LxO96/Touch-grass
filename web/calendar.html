@@ -45,7 +45,8 @@
         <button type="button" class="modebtn" id="view-year" data-t="viewYear">YEAR</button>
       </div>
     </div>
-    <p class="hint" data-t="calHint">Tap any day to correct it.</p>
+    <p class="hint" data-t="calHint">Press and hold a day to change it.</p>
+    <p class="hint small day-note" id="day-note" aria-live="polite">&nbsp;</p>
 
     <!-- month view: big, thumb-sized targets -->
     <div id="month-view">
@@ -60,9 +61,7 @@
 
     <!-- year view: the whole thing at a glance -->
     <div id="year-view">
-      <div class="cal-scroll">
-        <div class="cal" id="cal"></div>
-      </div>
+      <div class="cal" id="cal"></div>
     </div>
 
     <div class="legend">

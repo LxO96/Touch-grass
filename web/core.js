@@ -671,3 +671,32 @@ function loadPlace() {
   try { return JSON.parse(localStorage.getItem('touchgrass.place') || 'null'); }
   catch { return null; }
 }
+
+
+/* ==========================================================
+   THE HEADER
+
+   The big title fades as you scroll down and the tabs stay pinned
+   at the top, so the pages keep their name at rest and give the
+   screen back once you are reading. Pages only — the test runner
+   has no real document.
+   ========================================================== */
+
+(function collapseHeader() {
+  if (typeof window === 'undefined' || typeof document.querySelector !== 'function') return;
+  const title = document.querySelector('h1');
+  if (!title) return;
+  let queued = false;
+  const paint = () => {
+    queued = false;
+    const h = title.offsetHeight || 1;
+    const y = window.scrollY || 0;
+    title.style.opacity = String(Math.max(0, 1 - y / (h * 0.8)));
+    // Solid just before the tabs pin, never after content has reached them.
+    document.body.classList.toggle('scrolled', y > h * 0.75);
+  };
+  window.addEventListener('scroll', () => {
+    if (!queued) { queued = true; requestAnimationFrame(paint); }
+  }, { passive: true });
+  paint();
+})();

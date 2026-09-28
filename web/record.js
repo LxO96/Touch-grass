@@ -116,71 +116,115 @@ function renderYear(log, L) {
   const cal = $('cal');
   cal.innerHTML = '';
 
-  const gutter = document.createElement('div');
-  gutter.className = 'cal-gutter';
-  [L.weekdays[0], '', L.weekdays[2], '', L.weekdays[4], '', L.weekdays[6]].forEach((d) => {
-    const s = document.createElement('span');
-    s.textContent = d;
-    gutter.append(s);
-  });
-
-  const grid = document.createElement('div');
-  grid.className = 'cal-grid';
-
-  const jan1 = new Date(year, 0, 1);
-  const lead = (jan1.getDay() + 6) % 7;
-  const dec31 = new Date(year, 11, 31);
-  const totalDays = Math.round((dec31 - jan1) / 86400000) + 1;
-  const weeks = Math.ceil((lead + totalDays) / 7);
-
-  grid.style.gridTemplateColumns = `repeat(${weeks}, var(--cell))`;
-
-  const months = document.createElement('div');
-  months.className = 'cal-months';
-  months.style.gridTemplateColumns = `repeat(${weeks}, var(--cell))`;
+  // Twelve columns, one per month; thirty-one rows, one per day of the
+  // month. Reads like a wall calendar, and fits a phone without scrolling.
+  const corner = document.createElement('span');
+  corner.className = 'yc-corner';
+  cal.append(corner);
   for (let m = 0; m < 12; m++) {
-    const firstOfMonth = new Date(year, m, 1);
-    const col = Math.floor((lead + Math.round((firstOfMonth - jan1) / 86400000)) / 7) + 1;
-    const s = document.createElement('span');
-    s.textContent = L.months[m];
-    s.style.gridColumn = `${col} / span 4`;
-    months.append(s);
+    const h = document.createElement('span');
+    h.className = 'yc-month';
+    h.textContent = L.months[m];
+    cal.append(h);
   }
 
-  for (let i = 0; i < lead; i++) {
-    const blank = document.createElement('span');
-    blank.className = 'cell blank';
-    grid.append(blank);
-  }
+  for (let d = 1; d <= 31; d++) {
+    const num = document.createElement('span');
+    num.className = 'yc-day';
+    num.textContent = d % 5 === 0 || d === 1 ? String(d) : '';
+    cal.append(num);
 
-  for (let i = 0; i < totalDays; i++) {
-    const key = dayKey(new Date(year, 0, 1 + i));
-    const n = log[key] || 0;
-    const cell = document.createElement('button');
-    cell.type = 'button';
-    cell.className = `cell lv${level(n)}`;
-    cell.dataset.key = key;
-    if (key === todayK) cell.classList.add('today');
-    if (key > todayK) { cell.classList.add('future'); cell.disabled = true; }
-    cell.title = `${key} — ${L.tripsOn(n)}`;
-    grid.append(cell);
+    for (let m = 0; m < 12; m++) {
+      const date = new Date(year, m, d);
+      if (date.getMonth() !== m) {           // 30 February and the like
+        const blank = document.createElement('span');
+        blank.className = 'cell blank';
+        cal.append(blank);
+        continue;
+      }
+      const key = dayKey(date);
+      const n = log[key] || 0;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = `cell lv${level(n)}`;
+      cell.dataset.key = key;
+      if (key === todayK) cell.classList.add('today');
+      if (key > todayK) { cell.classList.add('future'); cell.disabled = true; }
+      cell.title = `${key} — ${L.tripsOn(n)}`;
+      cal.append(cell);
+    }
   }
-
-  const stack = document.createElement('div');
-  stack.className = 'cal-stack';
-  stack.append(months, grid);
-  cal.append(gutter, stack);
 }
 
-/* ---------- tapping a day cycles it: none -> 1 -> 2 -> 3 -> none ---------- */
+/* ---------- press and hold a day to change it ----------
+
+   A quick tap used to change a day, which made it far too easy to edit
+   the year by scrolling past it. Now a tap only says what the day holds;
+   holding it for half a second cycles it none -> 1 -> 2 -> 3 -> none,
+   with a buzz so you know it took. From the keyboard, Enter still edits:
+   there is no long-press on a keyboard. */
+
+const HOLD_MS = 500;
+
+function dayNote(key) {
+  const n = visitsOn(key);
+  const L = T().ui;
+  const note = $('day-note');
+  if (note) note.textContent = `${key} — ${L.tripsOn(n)}. ${L.holdToChange}`;
+}
+
+function bumpDay(key) {
+  setVisits(key, (visitsOn(key) + 1) % 4);
+  try { if (navigator.vibrate) navigator.vibrate(25); } catch {}
+  renderRecord();
+  dayNote(key);
+}
 
 function wireDayTaps(hostId) {
-  $(hostId).addEventListener('click', (e) => {
+  const host = $(hostId);
+  let timer = null, startX = 0, startY = 0, held = false;
+
+  const cancel = () => { if (timer) { clearTimeout(timer); timer = null; } };
+
+  host.addEventListener('pointerdown', (e) => {
     const cell = e.target.closest('[data-key]');
     if (!cell || cell.disabled) return;
-    const key = cell.dataset.key;
-    setVisits(key, (visitsOn(key) + 1) % 4);
-    renderRecord();
+    held = false;
+    startX = e.clientX; startY = e.clientY;
+    cell.classList.add('holding');
+    timer = setTimeout(() => {
+      timer = null;
+      held = true;
+      cell.classList.remove('holding');
+      bumpDay(cell.dataset.key);
+    }, HOLD_MS);
+  });
+
+  // A finger that moves is scrolling, not holding.
+  host.addEventListener('pointermove', (e) => {
+    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) {
+      cancel();
+      host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
+    }
+  });
+
+  const release = () => {
+    cancel();
+    host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
+  };
+  host.addEventListener('pointerup', release);
+  host.addEventListener('pointercancel', release);
+  host.addEventListener('pointerleave', release);
+
+  // Long-press would otherwise open the phone's own menu.
+  host.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  host.addEventListener('click', (e) => {
+    const cell = e.target.closest('[data-key]');
+    if (!cell || cell.disabled) return;
+    if (held) { held = false; return; }          // the hold already changed it
+    if (e.detail === 0) bumpDay(cell.dataset.key); // Enter / Space
+    else dayNote(cell.dataset.key);                // a tap only reports
   });
 }
 
