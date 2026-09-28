@@ -2052,6 +2052,29 @@ check('an hour takes the Kp of the three-hour block it falls in',
   tgKpAt(KP, '2026-09-28T20:00:00Z'), 5.0);
 check('the block boundary belongs to the new block',
   tgKpAt(KP, '2026-09-28T21:00:00Z'), 3.67);
+// NOAA's Kp forecast as it is served, copied verbatim from the live feed
+// (2026-09-28). If NOAA changes the shape, these fail rather than the app
+// silently never seeing an aurora again.
+const KP_LIVE = JSON.parse('[' +
+  '{"time_tag":"2026-09-21T00:00:00","kp":1.67,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-21T03:00:00","kp":1,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-21T06:00:00","kp":0.33,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-29T00:00:00","kp":1.67,"observed":"predicted","noaa_scale":null}]');
+
+check('the live Kp format: an observed block is read',
+  tgKpAt(KP_LIVE, '2026-09-21T04:00:00Z'), 1);
+check('the live Kp format: a whole-number Kp is read as a number',
+  tgKpAt(KP_LIVE, '2026-09-21T03:00:00Z'), 1);
+check('the live Kp format: a predicted block is read',
+  tgKpAt(KP_LIVE, '2026-09-29T02:00:00Z'), 1.67);
+
+// The legacy array-of-arrays shape NOAA served before (header row, string
+// Kp, space-separated time). If it ever comes back, no Kp — never a throw,
+// never a wrong block.
+check('the legacy Kp format yields no Kp rather than a wrong one',
+  tgKpAt([['time_tag', 'kp', 'observed', 'noaa_scale'],
+          ['2026-09-21 00:00:00', '1.67', 'observed', null]], '2026-09-21T01:00:00Z'), null);
+
 check('an hour past the end of the forecast has no Kp, not the last one',
   tgKpAt(KP, '2026-09-29T05:00:00Z'), null);
 check('an hour before the forecast starts has no Kp',

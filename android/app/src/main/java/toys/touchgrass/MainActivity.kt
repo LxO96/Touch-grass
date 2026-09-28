@@ -90,11 +90,6 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
-         * Trips logged from the widget while the page wasn't running.
-         * Returns them once and forgets them, so the page can fold them
-         * into localStorage — which stays the only source of truth.
-         */
-        /**
          * A short buzz for the press-and-hold on the year page. Chrome only
          * lets a page vibrate after a tap, and a long-press is not one, so
          * the first hold of a visit would otherwise be silent.
@@ -118,6 +113,11 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
+        /**
+         * Trips logged from the widget while the page wasn't running.
+         * Returns them once and forgets them, so the page can fold them
+         * into localStorage — which stays the only source of truth.
+         */
         @JavascriptInterface
         fun takePendingVisits(): Int {
             return try {

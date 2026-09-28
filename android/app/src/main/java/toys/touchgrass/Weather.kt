@@ -17,7 +17,10 @@ object Weather {
         val now: Scoring.Hour,
         val ahead: List<Scoring.Hour>,
         /** Today's sunset as minutes since local midnight, or null. */
-        val sunsetMinutes: Int?
+        val sunsetMinutes: Int?,
+        /** When it was fetched. A reused forecast's "now" is this hour, not
+            necessarily the current one. */
+        val fetchedAt: Long = 0L
     )
 
     /** MET Norway's terms require an identifying User-Agent. */
@@ -123,7 +126,7 @@ object Weather {
         } ?: return fallback()
 
         val parsed = try {
-            parseBlended(JSONObject(blended))
+            parseBlended(JSONObject(blended), nowMs)
         } catch (_: Exception) {
             null
         } ?: return fallback()
@@ -195,7 +198,7 @@ object Weather {
         null    // offline, DNS, timeout, or a 404 outside SMHI's area
     }
 
-    private fun parseBlended(d: JSONObject): Forecast? {
+    private fun parseBlended(d: JSONObject, fetchedAt: Long): Forecast? {
         fun hour(o: JSONObject, k: Int) = Scoring.Hour(
             hour = o.getInt("hour"),
             feels = o.getDouble("feels"),
@@ -220,7 +223,7 @@ object Weather {
         for (i in 0 until arr.length()) ahead += hour(arr.getJSONObject(i), i + 1)
 
         val sunset = if (d.isNull("sunsetMin")) null else d.getInt("sunsetMin")
-        return Forecast(now, ahead, sunset)
+        return Forecast(now, ahead, sunset, fetchedAt)
     }
 
     fun label(hr: Int) = when {

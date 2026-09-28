@@ -187,10 +187,11 @@ object Prefs {
 
     // --- our own bookkeeping ---------------------------------------------
 
-    /** So a day gets at most one nudge and one opportunity alert. */
     /** When the app was last brought on screen, epoch millis; 0 if never. */
     fun lastOpened(c: Context) = sp(c).getLong("openedAt", 0L)
     fun markOpened(c: Context, at: Long) = sp(c).edit().putLong("openedAt", at).apply()
+
+    /** So a day gets at most one nudge and one opportunity alert. */
 
     fun alreadyNudged(c: Context, day: String) = sp(c).getString("nudgedOn", "") == day
     fun markNudged(c: Context, day: String) = sp(c).edit().putString("nudgedOn", day).apply()

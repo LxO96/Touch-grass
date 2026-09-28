@@ -192,22 +192,6 @@ function tgIsRisky(h) {
   return t >= TOO_HOT || t <= TOO_COLD || tgHas(TG_LIGHTNING, h.code);
 }
 
-/* ----------------------------------------------------------
-   Primitive-argument doorway, for callers that would rather not
-   marshal objects across a language boundary (i.e. Rhino).
-   Same formula — it goes through tgScoreHour like everyone else.
-   ---------------------------------------------------------- */
-function tgScoreArgs(hour, feels, pop, precip, wind, isDay, code,
-                     dRain, dCold, dHeat, dWind, dDark, twilight, dTwilight) {
-  return tgScoreHour(
-    { hour: hour, feels: feels, pop: pop, precip: precip,
-      wind: wind, isDay: !!isDay, code: code,
-      twilight: twilight ? String(twilight) : null },
-    { rain: dRain, cold: dCold, heat: dHeat, wind: dWind, dark: dDark,
-      twilight: dTwilight }
-  );
-}
-
 /* JSON doorway for the score, now that the dials carry the sky ratings
    as an object rather than a flat list of numbers. */
 function tgScoreJson(hourJson, dialsJson) {

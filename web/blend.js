@@ -336,14 +336,6 @@ function tgNormaliseMet(d) {
   return out;
 }
 
-/* "2026-09-08T23:00" local, plus the offset, as a UTC stamp matching
-   what SMHI and MET publish. Built by hand rather than through a
-   local Date so a visitor's own timezone can never leak into it.
-
-   Null for anything that is not a stamp. A 200 carrying an HTML error
-   page or a captive portal's login screen must degrade to "no forecast",
-   never to a throw: on Android this runs inside a worker whose contract
-   is null on failure, and a throw there costs the retry. */
 /* A night hour right next to a day hour is twilight — the half-light
    either side of the sun, which is some of the nicest light of the day
    and should not score like 2am. The first dark hour after a light one is
@@ -528,6 +520,14 @@ function tgWantsOvation(f) {
   return !!(f && f.now && f.now.aurora && f.now.auroraSource === 'kp');
 }
 
+/* "2026-09-08T23:00" local, plus the offset, as a UTC stamp matching
+   what SMHI and MET publish. Built by hand rather than through a
+   local Date so a visitor's own timezone can never leak into it.
+
+   Null for anything that is not a stamp. A 200 carrying an HTML error
+   page or a captive portal's login screen must degrade to "no forecast",
+   never to a throw: on Android this runs inside a worker whose contract
+   is null on failure, and a throw there costs the retry. */
 function tgLocalToUtc(local, offsetSeconds) {
   if (typeof local !== 'string' || local.length < 16) return null;
   var y = parseInt(local.slice(0, 4), 10);

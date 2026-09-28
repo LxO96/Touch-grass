@@ -503,4 +503,26 @@ class ScoringEngineTest {
         assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "kp", auroraValue = 5.0)).contains("Kp 5"))
         assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "oval", auroraValue = 41.0)).contains("41% chance"))
     }
+
+    // The review's scenario: a forecast fetched at 21:20 marks 22:00 as
+    // likely; the alarm fires at 22:00 and the check reuses that forecast.
+    // Its own "now" is the 21:00 row, but 22:00 is what is happening.
+    @Test
+    fun `a reused forecast still alerts for the hour that is happening`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        fun at(h: Int, m: Int) = java.util.Calendar.getInstance(z).apply {
+            clear(); set(2026, 8, 28, h, m, 0) }.timeInMillis
+        fun hour(k: Int, likely: Boolean) = Scoring.Hour(hour = 21 + k, feels = 5.0, pop = 0.0,
+            precip = 0.0, wind = 5.0, isDay = false, code = 0, hoursFromNow = k,
+            aurora = if (likely) "likely" else null)
+        val f = Weather.Forecast(hour(0, false), listOf(hour(1, true), hour(2, false)), null, at(21, 20))
+
+        val atFetch = CheckWorker.auroraPlan(f, at(21, 20), z)
+        assertNull(atFetch.now)
+        assertEquals(at(22, 0), atFetch.wakeAt)
+
+        val atAlarm = CheckWorker.auroraPlan(f, at(22, 0), z)
+        assertEquals(22, atAlarm.now?.hour)
+        assertNull(atAlarm.wakeAt)
+    }
 }

@@ -492,10 +492,10 @@ function paintNotify() {
   $('n-alarm').checked = NOTIFY.alarm;
 
   $('notify-card').classList.toggle('off-1', !NOTIFY.enabled);
-  document.querySelectorAll('#notify-card .opt')[0]
-    .classList.toggle('collapsed', !NOTIFY.enabled);
-  document.querySelectorAll('#notify-card .opt')[1]
-    .classList.toggle('collapsed', !NOTIFY.watch);
+  // By the switch each option belongs to, not by position: a new option
+  // inserted above would otherwise fold the wrong one.
+  $('n-enabled').closest('.opt').classList.toggle('collapsed', !NOTIFY.enabled);
+  $('n-watch').closest('.opt').classList.toggle('collapsed', !NOTIFY.watch);
 }
 
 function pushNotify() {

@@ -118,6 +118,7 @@ object Notifier {
     fun clearAll(c: Context) {
         NotificationManagerCompat.from(c).cancel(ID_NUDGE)
         NotificationManagerCompat.from(c).cancel(ID_WINDOW)
+        NotificationManagerCompat.from(c).cancel(ID_AURORA)
     }
 
     /**
