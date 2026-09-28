@@ -384,4 +384,146 @@ class ScoringEngineTest {
         assertNotNull(f)
         assertEquals(23, f!!.now.hour)
     }
+
+    // Rhino must see the twilight flag and the dial, or the widget would
+    // punish dusk as night while the page does not.
+    @Test
+    fun `dusk is not punished as dark through Rhino at the default dial`() {
+        val dusk = Scoring.Hour(hour = 20, feels = 13.0, pop = 40.0, precip = 0.0,
+            wind = 8.0, isDay = false, code = 2, twilight = "dusk")
+        val light = dusk.copy(isDay = true, twilight = null)
+        assertEquals(Scoring.score(light, Scoring.Dials()), Scoring.score(dusk, Scoring.Dials()))
+    }
+
+    @Test
+    fun `the dusk dial reaches Rhino`() {
+        val dusk = Scoring.Hour(hour = 20, feels = 13.0, pop = 40.0, precip = 0.0,
+            wind = 8.0, isDay = false, code = 2, twilight = "dusk")
+        assertEquals(10,
+            Scoring.score(dusk, Scoring.Dials(twilight = 2.0)) -
+                Scoring.score(dusk, Scoring.Dials(twilight = 1.0)))
+    }
+
+    @Test
+    fun `the verdict sees twilight too`() {
+        // tgDecide gets hours as JSON; a dusk hour must arrive as dusk.
+        val now = Scoring.Hour(hour = 19, feels = 13.0, pop = 90.0, precip = 2.0,
+            wind = 8.0, isDay = true, code = 63)
+        // Comfortable, dry, calm: 100 unless it is wrongly scored as night (62).
+        val dusk = Scoring.Hour(hour = 20, feels = 20.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0, twilight = "dusk", hoursFromNow = 1, label = "8pm")
+        val v = Scoring.decide(now, listOf(dusk), 0, Scoring.Dials())
+        assertEquals(100, v.targetScore)
+    }
+
+    // The ratings must reach Rhino, or the widget scores a grey sky with
+    // the defaults while the page uses yours.
+    @Test
+    fun `sky ratings reach Rhino`() {
+        val grey = Scoring.Hour(hour = 14, feels = 20.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = true, code = 3)
+        assertEquals(90, Scoring.score(grey, Scoring.Dials()))
+        assertEquals(100, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 0))))
+        assertEquals(65, Scoring.score(grey, Scoring.Dials(sky = mapOf("overcast" to 4))))
+    }
+
+    // A first must reach Rhino, or the widget would miss the first snow
+    // of the season that the page celebrates.
+    @Test
+    fun `a first earns its bonus through Rhino, and can be switched off`() {
+        val wet = Scoring.Hour(hour = 14, feels = 14.0, pop = 60.0, precip = 0.0,
+            wind = 5.0, isDay = true, code = 63)
+        val first = wet.copy(novelty = "rain", noveltyDays = 16)
+        assertEquals(15, Scoring.score(first, Scoring.Dials()) - Scoring.score(wet, Scoring.Dials()))
+        assertEquals(Scoring.score(wet, Scoring.Dials()),
+            Scoring.score(first, Scoring.Dials(novelty = false)))
+    }
+
+    @Test
+    fun `a likely aurora earns its bonus through Rhino, and can be switched off`() {
+        val dark = Scoring.Hour(hour = 22, feels = 18.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0)
+        val likely = dark.copy(aurora = "likely", auroraSource = "kp", auroraValue = 5.0)
+        val possible = dark.copy(aurora = "possible", auroraSource = "kp", auroraValue = 3.5)
+        assertEquals(20, Scoring.score(likely, Scoring.Dials()) - Scoring.score(dark, Scoring.Dials()))
+        assertEquals(10, Scoring.score(possible, Scoring.Dials()) - Scoring.score(dark, Scoring.Dials()))
+        assertEquals(Scoring.score(dark, Scoring.Dials()),
+            Scoring.score(likely, Scoring.Dials(aurora = false)))
+    }
+
+    @Test
+    fun `Kp reaches the blend through Rhino and marks a dark clear hour`() {
+        // Stockholm on a dark, clear, moonless evening (new moon on the
+        // 10th): 21:00 local onwards, UTC+2.
+        val hours = (0 until 8).map { "2026-10-10T${"%02d".format(21 + it - if (21 + it > 23) 24 else 0)}:00" }
+            .mapIndexed { i, t -> if (i >= 3) t.replace("2026-10-10", "2026-10-11") else t }
+        fun col(v: Any) = hours.joinToString(",", "[", "]") { "$v" }
+        val om = """{"latitude":59.33,"longitude":18.07,"utc_offset_seconds":7200,
+            "current":{"time":"2026-10-10T21:10"},
+            "hourly":{"time":${hours.joinToString(",", "[", "]") { "\"$it\"" }},
+              "is_day":${col(0)},"weather_code":${col(0)},"temperature_2m":${col(8)},
+              "apparent_temperature":${col(6)},"precipitation_probability":${col(0)},
+              "precipitation":${col(0)},"wind_speed_10m":${col(6)}},
+            "daily":{"time":["2026-10-10"],"sunset":["2026-10-10T18:40"]}}"""
+        val kp = """[{"time_tag":"2026-10-10T18:00:00","kp":6},{"time_tag":"2026-10-10T21:00:00","kp":6},
+            {"time_tag":"2026-10-11T00:00:00","kp":6}]"""
+        fun marked(json: String?): Int {
+            val o = JSONObject(json!!)
+            val rows = listOf(o.getJSONObject("now")) +
+                (0 until o.getJSONArray("ahead").length()).map { o.getJSONArray("ahead").getJSONObject(it) }
+            return rows.count { it.optString("aurora") == "likely" }
+        }
+        assertEquals(0, marked(Scoring.blend(om, null, null)))
+        assertEquals(8, marked(Scoring.blend(om, null, null, kp)))
+    }
+
+    @Test
+    fun `the aurora night runs from evening to the next morning`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        fun at(d: Int, h: Int) = java.util.Calendar.getInstance(z).apply {
+            clear(); set(2026, 8, d, h, 0, 0)
+        }.timeInMillis
+        assertEquals("2026-09-28", NudgeTiming.auroraNight(at(28, 22), z))
+        assertEquals("2026-09-28", NudgeTiming.auroraNight(at(29, 2), z))
+        assertEquals("2026-09-29", NudgeTiming.auroraNight(at(29, 21), z))
+    }
+
+    @Test
+    fun `the aurora alarm wakes at the start of the likely hour`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        val now = java.util.Calendar.getInstance(z).apply { clear(); set(2026, 8, 28, 20, 40, 0) }.timeInMillis
+        val at = java.util.Calendar.getInstance(z).apply { timeInMillis = NudgeTiming.hourStart(now, 2, z) }
+        assertEquals(22, at.get(java.util.Calendar.HOUR_OF_DAY))
+        assertEquals(0, at.get(java.util.Calendar.MINUTE))
+    }
+
+    @Test
+    fun `the aurora alert says which reading earned it`() {
+        val h = Scoring.Hour(hour = 22, feels = 5.0, pop = 0.0, precip = 0.0,
+            wind = 5.0, isDay = false, code = 0, aurora = "likely")
+        assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "kp", auroraValue = 5.0)).contains("Kp 5"))
+        assertTrue(CheckWorker.auroraText(h.copy(auroraSource = "oval", auroraValue = 41.0)).contains("41% chance"))
+    }
+
+    // The review's scenario: a forecast fetched at 21:20 marks 22:00 as
+    // likely; the alarm fires at 22:00 and the check reuses that forecast.
+    // Its own "now" is the 21:00 row, but 22:00 is what is happening.
+    @Test
+    fun `a reused forecast still alerts for the hour that is happening`() {
+        val z = java.util.TimeZone.getTimeZone("Europe/Stockholm")
+        fun at(h: Int, m: Int) = java.util.Calendar.getInstance(z).apply {
+            clear(); set(2026, 8, 28, h, m, 0) }.timeInMillis
+        fun hour(k: Int, likely: Boolean) = Scoring.Hour(hour = 21 + k, feels = 5.0, pop = 0.0,
+            precip = 0.0, wind = 5.0, isDay = false, code = 0, hoursFromNow = k,
+            aurora = if (likely) "likely" else null)
+        val f = Weather.Forecast(hour(0, false), listOf(hour(1, true), hour(2, false)), null, at(21, 20))
+
+        val atFetch = CheckWorker.auroraPlan(f, at(21, 20), z)
+        assertNull(atFetch.now)
+        assertEquals(at(22, 0), atFetch.wakeAt)
+
+        val atAlarm = CheckWorker.auroraPlan(f, at(22, 0), z)
+        assertEquals(22, atAlarm.now?.hour)
+        assertNull(atAlarm.wakeAt)
+    }
 }

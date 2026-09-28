@@ -11,6 +11,9 @@
 html, body { margin: 0; padding: 0; }
 h1, h2, h3 { margin: 0; }
 
+/* hidden means hidden, whatever display a class sets. */
+[hidden] { display: none !important; }
+
 body {
   min-height: 100vh;
   background-color: var(--sun);
@@ -363,7 +366,8 @@ h2 {
 
 /* ---------- search ---------- */
 
-.search { display: flex; gap: 12px; margin: 12px 0 0; flex-wrap: wrap; }
+.place-actions { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+.search { display: flex; gap: 12px; margin: 14px 0 0; flex-wrap: wrap; }
 
 .search input {
   font-family: var(--fontA);
@@ -428,7 +432,20 @@ footer {
    NAV
    ========================================================== */
 
-.nav { display: flex; gap: 12px; margin: -14px 0 26px; flex-wrap: wrap; }
+/* The tabs stay pinned while the big title scrolls away above them. */
+.nav {
+  display: flex; gap: 12px; flex-wrap: wrap;
+  position: sticky; top: 0; z-index: 20;
+  margin: -14px -20px 26px;
+  padding: 10px 20px;
+  /* See-through at rest so the graph paper shows; solid once pinned, so
+     the page scrolls cleanly underneath. */
+  background: transparent;
+  border-bottom: 3px solid transparent;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+body.scrolled .nav { background-color: var(--sun); border-bottom-color: var(--ink); }
+h1 { transition: opacity 80ms linear; }
 
 .navlink {
   font-family: var(--fontA);
@@ -502,49 +519,23 @@ footer {
 .scorebox .n { font-size: 34px; line-height: 1; }
 .scorebox .l { font-size: 14px; letter-spacing: 2px; opacity: 0.7; }
 
-/* wide content scrolls inside its own box, never the page */
-.cal-scroll { overflow-x: auto; padding-bottom: 6px; }
-
+/* The year: twelve month columns, thirty-one day rows. */
 .cal {
-  --cell: 11px;
-  display: flex;
-  gap: 6px;
-  width: max-content;
-}
-
-.cal-gutter {
   display: grid;
-  grid-template-rows: repeat(7, var(--cell));
+  grid-template-columns: 2em repeat(12, var(--yc));
   gap: 2px;
-  font-size: 12px;
-  padding-top: 20px;   /* clears the month strip */
-  opacity: 0.7;
+  justify-content: center;
+  /* The day numbers sit in a column on the left; the same width of empty
+     space on the right puts the boxes themselves in the middle. */
+  padding-right: calc(2em + 2px);
+  --yc: 14px;
 }
-
-.cal-gutter span { line-height: var(--cell); white-space: nowrap; }
-
-.cal-stack { display: flex; flex-direction: column; }
-
-.cal-months {
-  display: grid;
-  gap: 2px;
-  font-size: 13px;
-  height: 20px;
-  opacity: 0.75;
-}
-
-.cal-months span { white-space: nowrap; }
-
-.cal-grid {
-  display: grid;
-  grid-auto-flow: column;
-  grid-template-rows: repeat(7, var(--cell));
-  gap: 2px;
-}
+.yc-month { font-size: 12px; text-align: center; opacity: 0.75; overflow: visible; white-space: nowrap; }
+.yc-day { font-size: 12px; text-align: right; padding-right: 4px; opacity: 0.6; line-height: var(--yc); }
 
 .cell {
-  width: var(--cell);
-  height: var(--cell);
+  width: var(--yc, 17px);
+  height: var(--yc, 17px);
   padding: 0;
   border: 1px solid rgba(48, 62, 78, 0.35);
   background: white;
@@ -598,6 +589,38 @@ footer {
    ========================================================== */
 
 .dial { margin: 20px 0 24px; }
+
+/* ---------- ranking the skies ---------- */
+
+.sky-hint { min-height: 1.2em; margin: 4px 0 0; }
+.sky-band { margin: 10px -6px; padding: 2px 6px 6px; border: 2px dashed transparent; }
+.sky-band.drop-here { border-color: var(--ink); background: rgba(48, 62, 78, .06); }
+.sky-band-head {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  font: inherit; font-size: 22px; color: var(--ink);
+  background: none; border: 0; border-bottom: 3px solid var(--ink);
+  padding: 6px 0 4px; text-align: left; cursor: pointer;
+}
+.sky-band.can-drop .sky-band-head { background: rgba(48, 62, 78, .08); }
+.sky-band-pts { margin-left: auto; opacity: .65; font-variant-numeric: tabular-nums; }
+.sky-list { list-style: none; margin: 6px 0 0; padding: 0; min-height: 44px; }
+.sky-item { display: flex; align-items: center; gap: 4px; margin: 5px 0; }
+.sky-grip {
+  width: 44px; height: 44px; flex: 0 0 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; cursor: grab; user-select: none;
+  touch-action: none;   /* the grip drags; everywhere else still scrolls */
+}
+.sky-chip {
+  flex: 1; font: inherit; font-size: 19px; text-align: left;
+  padding: 8px 12px; background: #fff; color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 0; cursor: pointer;
+}
+.sky-item.picked .sky-chip { background: var(--ink); color: #fff; }
+.sky-chip:focus-visible, .sky-band-head:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.sky-item.dragging { position: relative; z-index: 5; }
+.sky-item.dragging .sky-chip { box-shadow: 5px 5px 0 var(--ink); }
+.sky-empty { opacity: .5; font-size: 16px; padding: 10px 0 10px 48px; }
 
 .dial-head {
   display: flex;
@@ -689,7 +712,6 @@ input[type=range].off::-moz-range-thumb { background: var(--rose); }
   .dial-name { font-size: 24px; }
   .scorebox .n { font-size: 26px; }
   .scorebox .l { font-size: 12px; }
-  .cal { --cell: 11px; }
   /* 2x2 instead of an orphaned fourth box */
   .scorebox { flex: 1 1 calc(50% - 6px); }
   .scorebar { gap: 10px; }
@@ -906,7 +928,9 @@ input[type=time].mini { font-size: 20px; padding: 1px 5px; }
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 6px;
+  touch-action: pan-y;   /* sideways is ours, for changing month */
 }
+#month-view { overflow: hidden; }
 
 .mgrid-head {
   font-size: 16px;
@@ -1007,6 +1031,16 @@ h2.spaced { margin-top: 26px; }
 
 #raw-wrap[hidden] { display: none; }
 
+.toggle.wrap { flex-wrap: wrap; }
+.restore-panel {
+  border: 3px solid var(--ink);
+  border-left-width: 16px;
+  border-left-color: var(--grass);
+  padding: 4px 14px 2px;
+  margin: 14px 0;
+}
+.restore-panel .switch { font-size: 20px; margin: 10px 0 0; }
+
 @media screen and (max-width: 640px) {
   .srclist { grid-template-columns: 1fr; gap: 0 0; }
   .srclist dt { margin-top: 8px; font-size: 18px; }
@@ -1014,3 +1048,39 @@ h2.spaced { margin-top: 26px; }
   .datasum { font-size: 21px; }
   .since { font-size: 18px; }
 }
+
+/* Press and hold: the cell sinks while it is being held. */
+.cell, .mcell {
+  -webkit-touch-callout: none;
+  user-select: none;
+  -webkit-user-select: none;
+  touch-action: manipulation;
+}
+.cell.holding, .mcell.holding {
+  outline: 3px solid var(--ink);
+  outline-offset: 1px;
+  transform: scale(0.9);
+  transition: transform 500ms ease;
+}
+.day-note { min-height: 1.3em; margin-top: 2px; }
+
+/* ---------- the day popup ---------- */
+
+.day-dialog {
+  border: 3px solid var(--ink);
+  box-shadow: 6px 6px 0 var(--ink);
+  background: white;
+  color: var(--ink);
+  font-family: var(--fontA);
+  padding: 18px 22px 20px;
+  width: min(320px, calc(100vw - 48px));
+  text-align: center;
+}
+.day-dialog::backdrop { background: rgba(48, 62, 78, 0.45); }
+.day-dialog h3 { font-size: 30px; margin: 0 0 10px; }
+.day-stepper { display: flex; align-items: center; justify-content: center; gap: 22px; }
+.day-step { width: 64px; height: 64px; font-size: 38px; line-height: 1; padding: 0; }
+.day-step:disabled { opacity: 0.3; }
+.day-count { font-size: 64px; min-width: 1.4ch; line-height: 1; }
+.day-words { margin: 8px 0 2px; font-size: 20px; }
+.day-dialog .big-btn { margin-top: 12px; width: 100%; }

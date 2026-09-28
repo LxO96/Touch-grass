@@ -1651,6 +1651,750 @@ check('danger names the first safe hour, not the finest one', (() => {
   return decide(stormNow, ahead, 0, S).decision.target.hour;
 })(), 6);
 
+/* ================= dusk and dawn ================= */
+
+// The half-light hour either side of the sun is some of the nicest light
+// of the day, and it used to score exactly like 2am. A night hour next to
+// a day hour is twilight: the first dark hour after sunset is dusk, the
+// last dark hour before sunrise is dawn.
+
+// Stockholm, UTC+2: light at 18 and 19, dark 20 through 05, light again at 06.
+const TWILIGHT_OM = (() => {
+  const times = [], isDay = [];
+  const light = { 18: 1, 19: 1, 6: 1, 7: 1 };
+  for (let i = 0; i < 14; i++) {
+    const h = (18 + i) % 24;
+    const day = i < 6 ? '2026-09-27' : '2026-09-28';
+    times.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    isDay.push(light[h] || 0);
+  }
+  const n = times.length, fill = (v) => Array.from({ length: n }, () => v);
+  return {
+    utc_offset_seconds: 7200,
+    current: { time: '2026-09-27T18:00' },
+    hourly: { time: times, is_day: isDay,
+      temperature_2m: fill(14), apparent_temperature: fill(13),
+      precipitation_probability: fill(10), precipitation: fill(0),
+      weather_code: fill(2), wind_speed_10m: fill(8) },
+    daily: { sunset: ['2026-09-27T19:26'] }
+  };
+})();
+
+const twilightOf = (hour) => {
+  const f = tgForecast({ om: TWILIGHT_OM });
+  const row = [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+  return row ? row.twilight : 'missing';
+};
+
+check('the first dark hour after sunset is dusk', twilightOf(20), 'dusk');
+check('the last dark hour before sunrise is dawn', twilightOf(5), 'dawn');
+check('the middle of the night is neither', twilightOf(23), null);
+check('a daylight hour is not twilight', twilightOf(19), null);
+check('the first light hour after dawn is not twilight', twilightOf(6), null);
+
+check('the default dusk dial is 1', DEFAULTS.twilight, 1);
+
+// An hour at 20:00: dark, not the small hours, a little rain chance so a
+// bonus has room to show under the 100 cap.
+const duskHour = (o) => at(Object.assign(
+  { hour: 20, isDay: false, twilight: 'dusk', pop: 40 }, o || {}));
+const withDial = (v) => Object.assign({}, S, { twilight: v });
+
+check('at the default dial, dusk is not punished as dark',
+  scoreHour(duskHour(), S), scoreHour(duskHour({ isDay: true, twilight: null }), S));
+
+check('at dial 0, dusk counts as full night',
+  scoreHour(duskHour(), withDial(0)), scoreHour(duskHour({ twilight: null }), withDial(0)));
+
+check('at dial 2, dusk earns a bonus on top',
+  scoreHour(duskHour(), withDial(2)) - scoreHour(duskHour(), withDial(1)), 10);
+
+check('the dial leaves an ordinary dark hour alone',
+  scoreHour(duskHour({ twilight: null }), withDial(2)),
+  scoreHour(duskHour({ twilight: null }), withDial(0)));
+
+check('a 3am dawn still carries the small-hours penalty', (() => {
+  const e = tgExplainHour(at({ hour: 3, isDay: false, twilight: 'dawn' }), S);
+  return e.parts.some((p) => p.key === 'night');
+})(), true);
+
+check('the dusk bonus shows as its own row', (() => {
+  const e = tgExplainHour(duskHour(), withDial(2));
+  const row = e.parts.filter((p) => p.key === 'dusk')[0];
+  return row ? row.amount : 'no row';
+})(), 10);
+
+check('dusk and dawn are named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const f = T().ui.factors;
+    return !!f.dusk && !!f.dawn;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+/* ================= kinds of weather ================= */
+
+// Clear blue sky and a grey lid used to score identically. Each kind of
+// weather now carries its own rating — Love it, Like it, Fine, Not keen,
+// Hate it: 0, −5, −10, −20, −35 — on top of getting wet, which the rain
+// dial still handles. Thunder is not rateable: it is safety.
+
+// Same hour, dry and calm, only the sky differs.
+const skyHour = (code, o) => at(Object.assign({ code, pop: 0, precip: 0 }, o || {}));
+const skyGap = (code, s) => scoreHour(skyHour(0), s || S) - scoreHour(skyHour(code), s || S);
+const withSky = (sky) => Object.assign({}, S, { sky: Object.assign({}, S.sky, sky) });
+
+check('clear sky costs nothing by default', skyGap(0), 0);
+check('mostly clear costs nothing by default', skyGap(1), 0);
+check('partly cloudy is liked by default: -5', skyGap(2), 5);
+check('overcast is fine by default: -10', skyGap(3), 10);
+check('fog is fine by default: -10', skyGap(45), 10);
+check('drizzle is fine by default: -10', skyGap(53), 10);
+check('rain is not-keen by default: -20', skyGap(63), 20);
+check('showers count as rain', skyGap(81), 20);
+check('snow is liked by default: -5', skyGap(73), 5);
+check('freezing rain is hated by default: -35', skyGap(66), 35);
+
+check('rating overcast as loved makes it as good as clear',
+  skyGap(3, withSky({ overcast: 0 })), 0);
+check('rating clear sky as hated costs 35',
+  scoreHour(skyHour(0, { pop: 0 }), withSky({ clear: 4 })) , 65);
+
+check('thunder is not rateable: it stays -45 whatever the ratings say', (() => {
+  const loveAll = {};
+  TG_SKY_ORDER.forEach((k) => { loveAll[k] = 0; });
+  const e = tgExplainHour(skyHour(95), withSky(loveAll));
+  const row = e.parts.filter((p) => p.key === 'code')[0];
+  return row ? row.amount + ':' + row.fixed : 'no row';
+})(), '-45:true');
+
+check('the rain dial no longer scales the sky rating', (() => {
+  const dry = Object.assign({}, S, { rain: 0 });
+  return scoreHour(skyHour(45), dry);
+})(), 90);
+
+check('the sky rating shows as its own row, named after the sky', (() => {
+  const e = tgExplainHour(skyHour(3), S);
+  const row = e.parts.filter((p) => p.key === 'sky')[0];
+  return row ? row.amount + ':' + factorFact('sky', skyHour(3)) : 'no row';
+})(), '-10:' + skyName(3));
+
+check('every kind of weather the app can describe is rateable, bar thunder', (() => {
+  const missing = Object.keys(T().sky)
+    .filter((k) => k !== 'fallback')
+    .map(Number)
+    .filter((c) => [95, 96, 99].indexOf(c) < 0)
+    .filter((c) => !tgSkyKind(c));
+  return missing.join(',') || 'all rateable';
+})(), 'all rateable');
+
+check('stored ratings survive, bad ones fall back to the default', (() => {
+  const real = localStorage.getItem('touchgrass.settings');
+  localStorage.setItem('touchgrass.settings', JSON.stringify(
+    { sky: { overcast: 0, rain: 9, snow: 'lots', fog: 2.5 } }));
+  const sky = getSettings().sky;
+  if (real === null) localStorage.removeItem('touchgrass.settings');
+  else localStorage.setItem('touchgrass.settings', real);
+  return [sky.overcast, sky.rain, sky.snow, sky.fog, sky.clear].join(',');
+})(), '0,3,1,2,0');
+
+check('every kind of weather and every rating is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return TG_SKY_ORDER.every((k) => !!(u.skyKinds && u.skyKinds[k])) &&
+           !!u.skyRatings && u.skyRatings.length === 5 && !!u.factors.sky;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+/* ================= ranking the skies into bands ================= */
+
+// The settings card is a list of five bands — Love it .. Hate it — that
+// each kind of weather is dragged into. The bands are just the ratings,
+// so these pin the two small pieces of logic the card is built on.
+
+check('the default skies fall into the bands they were rated into', (() => {
+  return skyBands(DEFAULTS.sky).map((b) => b.join('+')).join(' | ');
+})(), 'clear+mostlyClear | partly+snow | overcast+fog+drizzle | rain | freezing');
+
+check('a band can be empty', (() => {
+  const sky = moveSky(DEFAULTS.sky, 'rain', 2);
+  return skyBands(sky)[3].length;
+})(), 0);
+
+check('moving a sky puts it in its new band', (() => {
+  const sky = moveSky(DEFAULTS.sky, 'overcast', 0);
+  return skyBands(sky)[0].join('+');
+})(), 'clear+mostlyClear+overcast');
+
+check('moving a sky does not touch the one it was given', (() => {
+  const before = Object.assign({}, DEFAULTS.sky);
+  moveSky(DEFAULTS.sky, 'fog', 4);
+  return JSON.stringify(DEFAULTS.sky) === JSON.stringify(before);
+})(), true);
+
+check('a move past either end stops at the end band', (() => {
+  return [moveSky(DEFAULTS.sky, 'clear', -1).clear,
+          moveSky(DEFAULTS.sky, 'freezing', 7).freezing].join(',');
+})(), '0,4');
+
+check('an unknown kind of weather is ignored, not added', (() => {
+  return Object.keys(moveSky(DEFAULTS.sky, 'hail', 0)).indexOf('hail');
+})(), -1);
+
+check('every kind of weather has an icon', (() => {
+  return TG_SKY_ORDER.filter((k) => !SKY_ICONS[k]).join(',') || 'all';
+})(), 'all');
+
+/* ================= firsts are worth a bonus ================= */
+
+// The first rain after two dry weeks, the first snow of the season, the
+// first sun after a grey week, the first warm day of spring: each earns
+// +15 on the hours it happens, today. History comes from Open-Meteo's
+// daily past_days, so it costs no extra request.
+
+// n days of history, oldest first, then today; `f` fills each field.
+function history(n, f) {
+  const days = { time: [], precipitation_sum: [], snowfall_sum: [],
+                 sunshine_duration: [], apparent_temperature_max: [] };
+  for (let i = 0; i <= n; i++) {
+    const dt = new Date(Date.UTC(2026, 8, 28) - (n - i) * 86400000);
+    days.time.push(dt.toISOString().slice(0, 10));
+    const v = f(n - i);   // days ago: n .. 0 (0 is today)
+    days.precipitation_sum.push(v.rain || 0);
+    days.snowfall_sum.push(v.snow || 0);
+    days.sunshine_duration.push(v.sun === undefined ? 6 * 3600 : v.sun);
+    days.apparent_temperature_max.push(v.warm === undefined ? 20 : v.warm);
+  }
+  return days;
+}
+const today = '2026-09-28';
+
+check('rain after 14 dry days is a first, and says how long it was dry',
+  tgNovelty(history(30, (ago) => ({ rain: ago === 16 ? 5 : 0 })), today).rain, 16);
+
+check('rain after 13 dry days is not',
+  tgNovelty(history(30, (ago) => ({ rain: ago === 13 ? 5 : 0 })), today).rain, null);
+
+check('a wet spell under 1 mm a day still counts as dry',
+  tgNovelty(history(30, () => ({ rain: 0.4 })), today).rain, 30);
+
+check('no snow in the whole season so far makes the first snow a first',
+  tgNovelty(history(90, () => ({ sun: 3600 * 5 })), today).snow, true);
+
+check('snow earlier in the season means it is not the first',
+  tgNovelty(history(90, (ago) => ({ snow: ago === 40 ? 2 : 0 })), today).snow, false);
+
+check('too little history to know is not claimed as a first',
+  tgNovelty(history(20, () => ({})), today).snow, false);
+
+check('sun after a grey week is a first, and says how grey it was',
+  tgNovelty(history(30, (ago) => ({ sun: ago >= 1 && ago <= 9 ? 600 : 6 * 3600 })), today).sun, 9);
+
+check('six grey days are not enough',
+  tgNovelty(history(30, (ago) => ({ sun: ago >= 1 && ago <= 6 ? 600 : 6 * 3600 })), today).sun, null);
+
+check('the first 15-degree day after a cold spell is a first',
+  tgNovelty(history(90, () => ({ warm: 8 })), today).warm, true);
+
+check('a warm day after warm days is not',
+  tgNovelty(history(90, (ago) => ({ warm: ago === 50 ? 18 : 8 })), today).warm, false);
+
+check('no history, no firsts', (() => {
+  const n = tgNovelty(null, today);
+  return [n.rain, n.snow, n.sun, n.warm].join(',');
+})(), ',false,,false');
+
+// Integrated: an Open-Meteo payload with 30 dry days, rain this afternoon
+// and tomorrow. Only today's rainy hours earn it.
+const NOVEL_OM = (() => {
+  const hours = [], codes = [], isDay = [], feels = [];
+  for (let i = 0; i < 30; i++) {
+    const day = i < 11 ? '2026-09-28' : '2026-09-29';
+    const h = (13 + i) % 24;
+    hours.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    codes.push(h === 15 || h === 16 || h === 0 ? 63 : 3);   // rain at 15, 16 and midnight
+    isDay.push(h >= 7 && h < 19 ? 1 : 0);
+    feels.push(12);
+  }
+  const n = hours.length, fill = (v) => Array.from({ length: n }, () => v);
+  const daily = history(30, () => ({}));
+  daily.time.push('2026-09-29');
+  daily.precipitation_sum.push(4); daily.snowfall_sum.push(0);
+  daily.sunshine_duration.push(0); daily.apparent_temperature_max.push(12);
+  daily.sunset = daily.time.map((t) => (t === today ? `${t}T18:41` : `${t}T20:00`));
+  return {
+    utc_offset_seconds: 7200,
+    current: { time: '2026-09-28T13:10' },
+    hourly: { time: hours, weather_code: codes, is_day: isDay,
+      temperature_2m: fill(13), apparent_temperature: feels,
+      precipitation_probability: fill(20), precipitation: fill(0),
+      wind_speed_10m: fill(8) },
+    daily
+  };
+})();
+
+const novelRow = (hour, day) => {
+  const f = tgForecast({ om: NOVEL_OM });
+  return [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+};
+
+check('today\'s rainy hour after a dry spell is marked first rain',
+  novelRow(15).novelty + ':' + novelRow(15).noveltyDays, 'rain:30');
+
+check('a dry hour on the same day is not', novelRow(14).novelty, null);
+
+check('rain just after midnight belongs to tomorrow, and earns nothing today',
+  novelRow(0).novelty, null);
+
+check('sunset is today\'s, not the oldest day in the history',
+  tgForecast({ om: NOVEL_OM }).sunsetMin, 18 * 60 + 41);
+
+// Scoring: +15 on the hour, as its own row, with an off switch.
+const firstRain = (o) => at(Object.assign(
+  { code: 63, pop: 60, novelty: 'rain', noveltyDays: 16 }, o || {}));
+
+check('a first earns 15',
+  scoreHour(firstRain(), S) - scoreHour(firstRain({ novelty: null }), S), 15);
+
+check('the novelty bonus can be switched off',
+  scoreHour(firstRain(), Object.assign({}, S, { novelty: false })),
+  scoreHour(firstRain({ novelty: null }), S));
+
+check('a first shows as its own row, and says why', (() => {
+  const e = tgExplainHour(firstRain(), S);
+  const row = e.parts.filter((p) => p.key === 'firstRain')[0];
+  return row ? row.amount + ' / ' + factorFact('firstRain', firstRain()) : 'no row';
+})(), '15 / ' + T().ui.dryDays(16));
+
+check('the bonus is on by default', DEFAULTS.novelty, true);
+
+check('switching it off is remembered', (() => {
+  const real = localStorage.getItem('touchgrass.settings');
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ novelty: false }));
+  const v = getSettings().novelty;
+  if (real === null) localStorage.removeItem('touchgrass.settings');
+  else localStorage.setItem('touchgrass.settings', real);
+  return v;
+})(), false);
+
+check('every first is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return ['firstRain', 'firstSnow', 'firstSun', 'firstWarm'].every((k) => !!u.factors[k]) &&
+           typeof u.dryDays === 'function' && typeof u.greyDays === 'function' &&
+           !!u.noveltyToggle;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+/* ================= changing a day in the popup ================= */
+
+check('a day goes up one trip at a time', stepTrips(2, +1), 3);
+check('a day stops at five', stepTrips(5, +1), 5);
+check('a day goes down one trip at a time', stepTrips(3, -1), 2);
+check('a day cannot go below none', stepTrips(0, -1), 0);
+check('a day already past five (from the Today button) can still come down',
+  stepTrips(8, -1), 7);
+check('a day already past five is not pushed further up', stepTrips(8, +1), 8);
+check('the most the popup allows is five', TRIPS_MAX, 5);
+
+/* ================= sliding between months ================= */
+
+const SEPT = new Date(2026, 8, 28);   // "now" for these
+
+check('back from January is December of the year before',
+  JSON.stringify(shiftMonth(2026, 0, -1, SEPT)), JSON.stringify({ year: 2025, month: 11 }));
+check('forward from December is January of the next year',
+  JSON.stringify(shiftMonth(2025, 11, +1, SEPT)), JSON.stringify({ year: 2026, month: 0 }));
+check('forward from last month reaches this month',
+  JSON.stringify(shiftMonth(2026, 7, +1, SEPT)), JSON.stringify({ year: 2026, month: 8 }));
+check('forward from this month goes nowhere: it has not happened yet',
+  shiftMonth(2026, 8, +1, SEPT), null);
+check('back is always allowed',
+  JSON.stringify(shiftMonth(2026, 8, -1, SEPT)), JSON.stringify({ year: 2026, month: 7 }));
+
+/* ================= the aurora ================= */
+
+// Aurora follows geomagnetic latitude, not geographic. The oval's edge
+// sits near 66.5 degrees at Kp 0 and moves about 2.05 degrees south per
+// Kp. Dark, clear-ish hours earn +20 when it reaches you (likely) and +10
+// when it is within two degrees (possible, low on the northern horizon).
+
+const near = (a, b, tol) => Math.abs(a - b) <= tol;
+
+check('Stockholm is about 58 degrees geomagnetic',
+  near(tgGeomagLat(59.33, 18.07), 58.0, 0.6), true);
+check('Kiruna is about 65.6 degrees geomagnetic',
+  near(tgGeomagLat(67.86, 20.23), 65.6, 0.6), true);
+check('Stockholm needs about Kp 4',
+  Math.round(tgKpNeeded(tgGeomagLat(59.33, 18.07)) * 10) / 10 >= 3.6 &&
+  Math.round(tgKpNeeded(tgGeomagLat(59.33, 18.07)) * 10) / 10 <= 4.6, true);
+check('inside the oval, any Kp will do', tgKpNeeded(70), 0);
+
+const KP = [
+  { time_tag: '2026-09-28T15:00:00', kp: 2.33, observed: 'observed' },
+  { time_tag: '2026-09-28T18:00:00', kp: 5.0, observed: 'predicted' },
+  { time_tag: '2026-09-28T21:00:00', kp: 3.67, observed: 'predicted' },
+  { time_tag: '2026-09-29T00:00:00', kp: 1.0, observed: 'predicted' }
+];
+
+check('an hour takes the Kp of the three-hour block it falls in',
+  tgKpAt(KP, '2026-09-28T20:00:00Z'), 5.0);
+check('the block boundary belongs to the new block',
+  tgKpAt(KP, '2026-09-28T21:00:00Z'), 3.67);
+// NOAA's Kp forecast as it is served, copied verbatim from the live feed
+// (2026-09-28). If NOAA changes the shape, these fail rather than the app
+// silently never seeing an aurora again.
+const KP_LIVE = JSON.parse('[' +
+  '{"time_tag":"2026-09-21T00:00:00","kp":1.67,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-21T03:00:00","kp":1,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-21T06:00:00","kp":0.33,"observed":"observed","noaa_scale":null},' +
+  '{"time_tag":"2026-09-29T00:00:00","kp":1.67,"observed":"predicted","noaa_scale":null}]');
+
+check('the live Kp format: an observed block is read',
+  tgKpAt(KP_LIVE, '2026-09-21T04:00:00Z'), 1);
+check('the live Kp format: a whole-number Kp is read as a number',
+  tgKpAt(KP_LIVE, '2026-09-21T03:00:00Z'), 1);
+check('the live Kp format: a predicted block is read',
+  tgKpAt(KP_LIVE, '2026-09-29T02:00:00Z'), 1.67);
+
+// The legacy array-of-arrays shape NOAA served before (header row, string
+// Kp, space-separated time). If it ever comes back, no Kp — never a throw,
+// never a wrong block.
+check('the legacy Kp format yields no Kp rather than a wrong one',
+  tgKpAt([['time_tag', 'kp', 'observed', 'noaa_scale'],
+          ['2026-09-21 00:00:00', '1.67', 'observed', null]], '2026-09-21T01:00:00Z'), null);
+
+check('an hour past the end of the forecast has no Kp, not the last one',
+  tgKpAt(KP, '2026-09-29T05:00:00Z'), null);
+check('an hour before the forecast starts has no Kp',
+  tgKpAt(KP, '2026-09-28T09:00:00Z'), null);
+check('a malformed Kp payload has no Kp',
+  tgKpAt({ nonsense: true }, '2026-09-28T20:00:00Z'), null);
+
+// A slice of the OVATION grid: [lon 0..359, lat, percent].
+const OVAL = { coordinates: [
+  [18, 58, 1], [18, 59, 4], [18, 61, 22], [18, 64, 41], [18, 65, 70],
+  [19, 60, 90],                 // next longitude over: not ours
+  [340, 64, 55]                 // 20 W
+] };
+
+check('OVATION reads the strongest point from here to five degrees north',
+  tgOvationAt(OVAL, 59.33, 18.07), 41);
+check('a western longitude wraps onto the 0-359 grid',
+  tgOvationAt(OVAL, 62, -20), 55);
+check('nothing on the grid for this spot is no reading',
+  tgOvationAt(OVAL, 30, 100), null);
+
+const darkClear = (o) => Object.assign(
+  { time: '2026-09-28T20:00:00Z', isDay: false, twilight: null, code: 2 }, o || {});
+const needHere = tgKpNeeded(58);
+
+check('Kp that reaches you, dark and clear, is likely',
+  tgAuroraFor(darkClear(), 5.0, needHere, null).level, 'likely');
+check('Kp that nearly reaches you is possible',
+  tgAuroraFor(darkClear(), needHere - 0.5, needHere, null).level, 'possible');
+check('Kp well short of you is nothing',
+  tgAuroraFor(darkClear(), needHere - 2, needHere, null).level, null);
+check('daylight hides it',
+  tgAuroraFor(darkClear({ isDay: true }), 7, needHere, null).level, null);
+check('the twilight hour is too light for it',
+  tgAuroraFor(darkClear({ twilight: 'dusk' }), 7, needHere, null).level, null);
+check('overcast hides it',
+  tgAuroraFor(darkClear({ code: 3 }), 7, needHere, null).level, null);
+check('OVATION speaks for the hour it covers, over Kp',
+  tgAuroraFor(darkClear(), 1, needHere, 41).level, 'likely');
+check('a weak OVATION reading is possible',
+  tgAuroraFor(darkClear(), 7, needHere, 12).level, 'possible');
+check('a faint OVATION reading is nothing, whatever Kp says',
+  tgAuroraFor(darkClear(), 7, needHere, 3).level, null);
+
+// Scoring
+const auroraHour = (level) => at({ hour: 22, isDay: false, code: 0,
+  aurora: level, auroraSource: 'kp', auroraValue: 5 });
+
+check('a likely aurora earns 20',
+  scoreHour(auroraHour('likely'), S) - scoreHour(auroraHour(null), S), 20);
+check('a possible aurora earns 10',
+  scoreHour(auroraHour('possible'), S) - scoreHour(auroraHour(null), S), 10);
+check('the aurora bonus can be switched off',
+  scoreHour(auroraHour('likely'), Object.assign({}, S, { aurora: false })),
+  scoreHour(auroraHour(null), S));
+check('the aurora bonus is on by default', DEFAULTS.aurora, true);
+check('the aurora shows as its own row, with its Kp', (() => {
+  const e = tgExplainHour(auroraHour('likely'), S);
+  const row = e.parts.filter((p) => p.key === 'auroraLikely')[0];
+  return row ? row.amount + ' / ' + factorFact('auroraLikely', auroraHour('likely')) : 'no row';
+})(), '20 / ' + T().ui.kpFact(5));
+
+// The forecast: Stockholm on a dark evening with Kp 5 between 18 and 21 UTC.
+const AURORA_OM = (() => {
+  const hours = [], isDay = [], codes = [];
+  for (let i = 0; i < 14; i++) {
+    const h = (21 + i) % 24;
+    const day = i < 3 ? '2026-09-28' : '2026-09-29';
+    hours.push(`${day}T${String(h).padStart(2, '0')}:00`);
+    isDay.push(h >= 7 && h < 19 ? 1 : 0);
+    codes.push(h === 23 ? 3 : 0);          // cloud at 23:00 local only
+  }
+  const n = hours.length, fill = (v) => Array.from({ length: n }, () => v);
+  return {
+    latitude: 59.33, longitude: 18.07, utc_offset_seconds: 7200,
+    current: { time: '2026-09-28T21:10' },
+    hourly: { time: hours, is_day: isDay, weather_code: codes,
+      temperature_2m: fill(8), apparent_temperature: fill(6),
+      precipitation_probability: fill(0), precipitation: fill(0),
+      wind_speed_10m: fill(6) },
+    daily: { time: ['2026-09-28', '2026-09-29'], sunset: ['2026-09-28T18:40', '2026-09-29T18:37'] }
+  };
+})();
+
+const auroraRow = (f, hour) => [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
+
+// 28 September 2026 is two days past full moon, up from 18:00 in
+// Stockholm. The same night moved to 10 October has a new moon.
+const toNewMoon = (x) => JSON.parse(JSON.stringify(x)
+  .replace(/2026-09-28/g, '2026-10-10').replace(/2026-09-29/g, '2026-10-11'));
+const DARK_OM = toNewMoon(AURORA_OM), DARK_KP = toNewMoon(KP);
+
+check('the forecast marks a likely aurora from Kp', (() => {
+  const f = tgForecast({ om: DARK_OM, kp: DARK_KP });
+  const r = auroraRow(f, 22);                 // 20:00 UTC, Kp 5
+  return r.aurora + ':' + r.auroraSource + ':' + r.auroraValue;
+})(), 'likely:kp:5');
+
+check('a cloudy hour in the same storm is not marked',
+  auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 23).aurora, null);
+
+check('without a Kp forecast nothing is marked',
+  auroraRow(tgForecast({ om: AURORA_OM }), 22).aurora, null);
+
+check('OVATION refines the current hour only', (() => {
+  const f = tgForecast({ om: DARK_OM, kp: DARK_KP, ovation: { coordinates: [[18, 60, 3]] } });
+  return f.now.aurora + ',' + auroraRow(f, 22).aurora;
+})(), 'null,likely');
+
+// Cloud cover. "Partly cloudy" can be most of the sky, so when Open-Meteo
+// gives a percentage it decides: more than half covered is no aurora.
+check('a partly cloudy hour that is mostly cloud hides it',
+  tgAuroraFor(darkClear({ cloud: 70 }), 7, needHere, null).level, null);
+check('half the sky clear is enough',
+  tgAuroraFor(darkClear({ cloud: 50 }), 7, needHere, null).level, 'likely');
+check('without a cloud cover the weather code decides',
+  tgAuroraFor(darkClear({ cloud: null }), 7, needHere, null).level, 'likely');
+check('a low cloud cover does not overrule an overcast code',
+  tgAuroraFor(darkClear({ code: 3, cloud: 20 }), 7, needHere, null).level, null);
+check('the forecast reads cloud cover for each hour', (() => {
+  const om = JSON.parse(JSON.stringify(DARK_OM));
+  om.hourly.cloud_cover = om.hourly.time.map((t) => t.slice(11, 13) === '22' ? 80 : 10);
+  const f = tgForecast({ om: om, kp: DARK_KP });
+  return auroraRow(f, 22).cloud + ':' + auroraRow(f, 22).aurora;
+})(), '80:null');
+check('an hour without a cloud cover has none',
+  auroraRow(tgForecast({ om: DARK_OM, kp: DARK_KP }), 22).cloud, null);
+
+// The moon. A crescent is fine; from half lit, above the horizon, it
+// washes out all but a strong aurora, so likely drops to possible and
+// the alert (which only fires on likely) stays quiet.
+const moonLit = (t) => Math.round(tgMoon(Date.parse(t), 59.33, 18.07).lit * 100) / 100;
+check('the full moon of 26 September 2026 is fully lit', moonLit('2026-09-26T16:49:00Z') >= 0.99, true);
+check('the new moon of 10 October 2026 is dark', moonLit('2026-10-10T04:50:00Z') <= 0.01, true);
+check('a bright moon still below the horizon is no matter',
+  tgMoonBright(Date.parse('2026-09-28T16:00:00Z'), 59.33, 18.07), false);
+check('a bright moon once risen is',
+  tgMoonBright(Date.parse('2026-09-28T17:00:00Z'), 59.33, 18.07), true);
+check('a crescent in the evening sky is no matter',
+  tgMoonBright(Date.parse('2026-10-17T18:00:00Z'), 59.33, 18.07), false);
+
+check('under a bright moon a likely aurora is only possible', (() => {
+  const r = auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 22);
+  return r.aurora + ':' + r.auroraMoon;
+})(), 'possible:true');
+check('under a bright moon OVATION likely is only possible too',
+  tgAuroraFor(darkClear(), null, needHere, 41, true).level, 'possible');
+check('a bright moon leaves a possible aurora possible',
+  tgAuroraFor(darkClear(), needHere - 0.5, needHere, null, true).level, 'possible');
+check('a bright moon does not invent an aurora',
+  tgAuroraFor(darkClear(), needHere - 2, needHere, null, true).level, null);
+check('on a dark night the moon is not mentioned',
+  auroraRow(tgForecast({ om: DARK_OM, kp: DARK_KP }), 22).auroraMoon, false);
+check('the bright moon is named in the reason', (() => {
+  const h = auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 22);
+  return factorFact('auroraPossible', h);
+})(), T().ui.brightMoon(T().ui.kpFact(5)));
+check('the bright moon is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    return typeof T().ui.brightMoon === 'function' && T().ui.brightMoon('Kp 5') !== 'Kp 5';
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+check('OVATION is worth fetching on a dark, clear, active night',
+  tgWantsOvation(tgForecast({ om: DARK_OM, kp: DARK_KP })), true);
+check('OVATION is not worth fetching when Kp is quiet',
+  tgWantsOvation(tgForecast({ om: AURORA_OM, kp: [
+    { time_tag: '2026-09-28T18:00:00', kp: 1 }] })), false);
+
+check('the aurora is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return !!u.factors.auroraLikely && !!u.factors.auroraPossible &&
+      typeof u.kpFact === 'function' && typeof u.ovalFact === 'function' &&
+      !!u.auroraToggle && !!u.auroraAlert;
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+/* ================= backups ================= */
+
+// Borrow every key a backup touches, and give them all back afterwards.
+const BK = ['touchgrass.log', 'touchgrass.settings', 'touchgrass.notify',
+  'touchgrass.place', 'touchgrass.units', 'touchgrass.lang', 'touchgrass.exportedAt'];
+const BK_REAL = BK.map((k) => localStorage.getItem(k));
+const bkClear = () => { for (const k of BK) localStorage.removeItem(k); LANG_CACHE = null; };
+
+bkClear();
+localStorage.setItem('touchgrass.log', JSON.stringify({ '2026-09-01': 2, '2026-09-02': 1 }));
+
+check('a backup carries the log, settings, reminders, units, language and place', (() => {
+  const b = backupData();
+  return ['log', 'settings', 'notify', 'units', 'lang', 'place', 'savedAt']
+    .every((k) => Object.prototype.hasOwnProperty.call(b, k)) && b.app === 'touchgrass';
+})(), true);
+
+check('a backup round-trips through JSON', readBackup(JSON.parse(JSON.stringify(backupData()))).days, 2);
+
+check('something that is not a backup is refused', [
+  readBackup(null), readBackup([1, 2]), readBackup({ hello: 1 }), readBackup('text')
+].every((r) => r === null), true);
+
+check('the old backup shape, without a date, still reads', (() => {
+  const r = readBackup({ settings: {}, notify: {}, log: { '2026-09-03': 1 } });
+  return r.days + ':' + r.savedAt;
+})(), '1:null');
+
+check('a restore counts the days it would raise', readBackup({ log: {
+  '2026-09-01': 1,        // lower than here: stays
+  '2026-09-02': 3,        // higher: raised
+  '2026-09-05': 1         // new: added
+} }).added, 2);
+
+check('a restore merges, keeping the higher count for each day', (() => {
+  applyBackup({ log: { '2026-09-01': 1, '2026-09-02': 3, '2026-09-05': 1 } }, false);
+  return JSON.stringify(getLog());
+})(), JSON.stringify({ '2026-09-01': 2, '2026-09-02': 3, '2026-09-05': 1 }));
+
+check('a backup counts only the days that are real',
+  readBackup({ log: { '2026-02-30': 4, 'nonsense': 1, '2026-09-07': 1 } }).days, 1);
+
+check('a restored log is cleaned like any other', (() => {
+  applyBackup({ log: { '2026-02-30': 4, 'nonsense': 2, '2026-09-06': -1 } }, false);
+  return Object.keys(getLog()).length;
+})(), 3);
+
+check('settings are left alone unless asked for', (() => {
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ bar: 70 }));
+  applyBackup({ log: {}, settings: { bar: 40 } }, false);
+  return getSettings().bar;
+})(), 70);
+
+check('when asked, settings, reminders, units, language and place come back', (() => {
+  applyBackup({ log: {}, settings: { bar: 40 }, notify: { enabled: true, hour: 8 },
+    units: { temp: 'f', wind: 'ms' }, lang: 'sv',
+    place: { lat: 67.86, lon: 20.23, label: 'Kiruna' } }, true);
+  const out = [getSettings().bar, getNotify().enabled, getNotify().hour,
+    getUnits().temp, getLang(), loadPlace().label].join(',');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return out;
+})(), '40,true,8,f,sv,Kiruna');
+
+check('restored settings still go through the validators', (() => {
+  applyBackup({ log: {}, settings: { bar: 9000 }, notify: { hour: 99 },
+    units: { temp: 'kelvin' }, lang: 'klingon', place: { lat: 'north' } }, true);
+  return [getSettings().bar <= 100, getNotify().hour <= 23, getUnits().temp,
+    getLang(), loadPlace().label].join(',');
+})(), 'true,true,c,en,Kiruna');
+
+// The copy the app keeps, put back after a reinstall or on a new phone.
+const appWith = (state) => ({ savedState: () => state });
+const SAVED = JSON.stringify({ log: { '2026-08-01': 3 }, settings: { bar: 55 },
+  notify: { enabled: true }, lang: 'en', place: { lat: 59.33, lon: 18.07, label: 'Stockholm' },
+  visitsToday: 0, today: '2026-09-28' });
+
+check('an empty page restores the copy the app kept', (() => {
+  bkClear();
+  localStorage.setItem('touchgrass.lang', 'en');   // the first-run guess is not data
+  const done = restoreFromApp(appWith(SAVED));
+  return done + ':' + getLog()['2026-08-01'] + ':' + getSettings().bar + ':' + loadPlace().label;
+})(), 'true:3:55:Stockholm');
+
+check('a page that has data is never overwritten by the app copy', (() => {
+  bkClear();
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ bar: 80 }));
+  const done = restoreFromApp(appWith(SAVED));
+  return done + ':' + getSettings().bar + ':' + Object.keys(getLog()).length;
+})(), 'false:80:0');
+
+check('any one kept thing counts as data', BACKUP_KEYS.every((k) => {
+  bkClear();
+  localStorage.setItem(k, '{}');
+  return restoreFromApp(appWith(SAVED)) === false;
+}), true);
+
+check('no copy, a blank copy, or a broken one is no restore', (() => {
+  bkClear();
+  return [restoreFromApp(appWith('')), restoreFromApp(appWith('{broken')),
+    restoreFromApp(null), restoreFromApp({})].join(',');
+})(), 'false,false,false,false');
+
+check('a copy is remembered as exported', (() => {
+  bkClear();
+  const before = lastExported();
+  markExported();
+  return before + ':' + (typeof lastExported() === 'string');
+})(), 'null:true');
+
+check('the backup words exist in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return ['autoBackup', 'neverExported', 'restoreFile', 'restoreMerge',
+      'restoreSettings', 'restoreGo', 'cancel', 'saveFile', 'savedFile', 'saveFailed'].every((k) => typeof u[k] === 'string') &&
+      typeof u.restoreWhat(null, 3, 1) === 'string' &&
+      typeof u.restoredDays(2) === 'string' && typeof u.lastExported('1 Sep') === 'string';
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+check('the restore summary reads right', [
+  T().ui.restoreWhat('12 Sep 2026', 143, 5),
+  T().ui.restoreWhat(null, 1, 0)
+].join(' | '), 'A copy from 12 Sep 2026 with 143 days logged. 5 days have more trips than here. | ' +
+  'A copy with 1 day logged. Nothing in it is new to this phone.');
+
+BK.forEach((k, i) => {
+  if (BK_REAL[i] === null) localStorage.removeItem(k); else localStorage.setItem(k, BK_REAL[i]);
+});
+LANG_CACHE = null;
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

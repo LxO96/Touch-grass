@@ -336,6 +336,241 @@ function tgNormaliseMet(d) {
   return out;
 }
 
+/* A night hour right next to a day hour is twilight — the half-light
+   either side of the sun, which is some of the nicest light of the day
+   and should not score like 2am. The first dark hour after a light one is
+   dusk; the last dark hour before a light one is dawn. Read from the
+   spine's daylight, which covers the whole grid, so the hours either side
+   are known even at the ends of the twelve on show. */
+function tgTwilight(byTime, stamp, isDay) {
+  if (isDay) return null;
+  var before = tgLocalToUtc(stamp.slice(0, 16), 3600);    // an hour earlier
+  var after = tgLocalToUtc(stamp.slice(0, 16), -3600);    // an hour later
+  if (before && byTime[before] === true) return 'dusk';
+  if (after && byTime[after] === true) return 'dawn';
+  return null;
+}
+
+/* ----------------------------------------------------------
+   Firsts.
+
+   The first rain after two dry weeks, the season's first snow, the first
+   sun after a grey week, the first warm day of spring: rarer than the
+   weather itself, and worth going out for. Read from Open-Meteo's daily
+   history (past_days), so it costs no extra request, and decided for
+   today only — the day the verdict is about.
+   ---------------------------------------------------------- */
+var TG_NOVEL = {
+  dryDays: 14,        // days since the last rain before rain is a first
+  rainMm: 1,          // a day with at least this much counts as wet
+  snowCm: 0.5,        // a day with at least this much snowfall counts as snowy
+  greyDays: 7,        // grey days in a row before sun is a first
+  greySec: 3600,      // a day with less sunshine than this counts as grey
+  warmFeels: 15,      // feels-like that makes a warm day
+  seasonDays: 30      // history needed before "first of the season" is claimed
+};
+
+/* What makes today special, given the daily history. rain and sun carry a
+   day count (days since rain; grey days in a row) or null; snow and warm
+   are true or false. Never claims a first it has too little history for. */
+function tgNovelty(daily, today) {
+  var out = { rain: null, snow: false, sun: null, warm: false };
+  if (!daily || !daily.time) return out;
+
+  var t = -1, i;
+  for (i = 0; i < daily.time.length; i++) {
+    if (daily.time[i] === today) { t = i; break; }
+  }
+  if (t < 1) return out;
+
+  var rain = daily.precipitation_sum || [];
+  var snow = daily.snowfall_sum || [];
+  var sun = daily.sunshine_duration || [];
+  var warm = daily.apparent_temperature_max || [];
+
+  // Days since it last rained, counting back from yesterday.
+  var dry = 0;
+  for (i = t - 1; i >= 0 && tgNum(rain[i], 0) < TG_NOVEL.rainMm; i--) dry++;
+  var since = i >= 0 ? dry + 1 : dry;
+  if (since >= TG_NOVEL.dryDays) out.rain = since;
+
+  // Grey days in a row, counting back from yesterday.
+  var grey = 0;
+  for (i = t - 1; i >= 0 && tgNum(sun[i], TG_NOVEL.greySec) < TG_NOVEL.greySec; i--) grey++;
+  if (grey >= TG_NOVEL.greyDays) out.sun = grey;
+
+  // Firsts of the season need enough season behind them to mean it.
+  if (t >= TG_NOVEL.seasonDays) {
+    var snowed = false, warmed = false;
+    for (i = 0; i < t; i++) {
+      if (tgNum(snow[i], 0) >= TG_NOVEL.snowCm) snowed = true;
+      if (tgNum(warm[i], 0) >= TG_NOVEL.warmFeels) warmed = true;
+    }
+    out.snow = !snowed;
+    out.warm = !warmed;
+  }
+  return out;
+}
+
+/* Which first, if any, an hour of today earns. One per hour; the rarest
+   wins. */
+function tgNoveltyFor(nov, row) {
+  var kind = tgSkyKind(row.code);
+  if (nov.snow && kind === 'snow') return { kind: 'snow', days: null };
+  if (nov.rain !== null && (kind === 'rain' || kind === 'drizzle')) return { kind: 'rain', days: nov.rain };
+  if (nov.sun !== null && row.isDay && (kind === 'clear' || kind === 'mostlyClear')) return { kind: 'sun', days: nov.sun };
+  if (nov.warm && tgNum(row.feels, 0) >= TG_NOVEL.warmFeels) return { kind: 'warm', days: null };
+  return { kind: null, days: null };
+}
+
+/* ----------------------------------------------------------
+   The aurora.
+
+   It follows geomagnetic latitude, not geographic: Kiruna and a town at
+   the same latitude in Siberia see very different skies. A dipole model
+   is plenty at this scale. The oval's equatorward edge sits near 66.5
+   degrees geomagnetic at Kp 0 and moves about 2.05 degrees south per Kp,
+   which puts Stockholm at about Kp 4 and Kiruna at about Kp 0.5.
+
+   Kp (NOAA, three-hour blocks) covers every hour on the chart. OVATION
+   (NOAA's half-hourly probability grid) is sharper, so it speaks for the
+   current hour when it has been fetched. Only dark, clear-ish hours
+   count: an aurora behind cloud or in daylight is no reason to go out.
+   ---------------------------------------------------------- */
+var TG_AURORA = {
+  poleLat: 80.7, poleLon: -72.7,   // geomagnetic north pole
+  edgeAtKp0: 66.5, degPerKp: 2.05, // the oval's equatorward edge
+  possibleDeg: 2,                  // this far short still shows low in the north
+  ovalLikely: 30, ovalPossible: 10,// OVATION percent
+  northDeg: 5,                     // seen low over the horizon from this far south
+  sky: ['clear', 'mostlyClear', 'partly'],
+  maxCloud: 50,                    // percent; "partly cloudy" spans far more than that
+  moonLit: 0.5                     // half lit or more washes a faint aurora out
+};
+
+/* Where the moon is and how much of it is lit, from a short series
+   (the one SunCalc uses): good to a fraction of a degree, which is all
+   "is it up, and is it bright" needs. `ms` is epoch millis. */
+function tgMoon(ms, lat, lon) {
+  var r = Math.PI / 180, e = r * 23.4397;
+  var d = ms / 86400000 - 0.5 + 2440588 - 2451545;   // days since J2000
+  var L = r * (218.316 + 13.176396 * d), M = r * (134.963 + 13.064993 * d);
+  var F = r * (93.272 + 13.229350 * d);
+  var l = L + r * 6.289 * Math.sin(M), b = r * 5.128 * Math.sin(F);
+  var dist = 385001 - 20905 * Math.cos(M);
+  var ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
+  var dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
+
+  var H = r * (280.16 + 360.9856235 * d) + r * lon - ra, phi = r * lat;
+  var alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+
+  var sM = r * (357.5291 + 0.98560028 * d);
+  var sL = sM + r * (1.9148 * Math.sin(sM) + 0.02 * Math.sin(2 * sM) + 0.0003 * Math.sin(3 * sM)) +
+           r * 102.9372 + Math.PI;
+  var sDec = Math.asin(Math.sin(e) * Math.sin(sL));
+  var sRa = Math.atan2(Math.sin(sL) * Math.cos(e), Math.cos(sL));
+  var sDist = 149598000;
+  var gap = Math.acos(Math.max(-1, Math.min(1, Math.sin(sDec) * Math.sin(dec) +
+            Math.cos(sDec) * Math.cos(dec) * Math.cos(sRa - ra))));
+  var inc = Math.atan2(sDist * Math.sin(gap), dist - sDist * Math.cos(gap));
+  return { altitude: alt / r, lit: (1 + Math.cos(inc)) / 2 };
+}
+
+/* A bright moon above the horizon: a crescent is fine, but from half
+   lit up it drowns all but a strong aurora. */
+function tgMoonBright(ms, lat, lon) {
+  var m = tgMoon(ms, lat, lon);
+  return m.altitude > 0 && m.lit >= TG_AURORA.moonLit;
+}
+
+function tgGeomagLat(lat, lon) {
+  var r = Math.PI / 180;
+  var s = Math.sin(lat * r) * Math.sin(TG_AURORA.poleLat * r) +
+          Math.cos(lat * r) * Math.cos(TG_AURORA.poleLat * r) *
+          Math.cos((lon - TG_AURORA.poleLon) * r);
+  return Math.asin(Math.max(-1, Math.min(1, s))) / r;
+}
+
+// The Kp at which the oval's edge reaches this geomagnetic latitude.
+function tgKpNeeded(mlat) {
+  return Math.max(0, (TG_AURORA.edgeAtKp0 - mlat) / TG_AURORA.degPerKp);
+}
+
+// Kp for the three-hour block `stamp` (UTC, "...Z") falls in, or null.
+function tgKpAt(kp, stamp) {
+  if (!kp || typeof kp.length !== 'number') return null;
+  var best = null, i;
+  for (i = 0; i < kp.length; i++) {
+    var r = kp[i];
+    if (!r || typeof r.time_tag !== 'string' || typeof r.kp !== 'number') continue;
+    var start = r.time_tag.slice(0, 19) + 'Z';
+    if (start <= stamp && (best === null || start > best.start)) best = { start: start, kp: r.kp };
+  }
+  if (best === null) return null;
+  // More than three hours past the block's start is past the forecast.
+  var gap = (Date.parse(stamp) - Date.parse(best.start)) / 3600000;
+  return gap < 3 ? best.kp : null;
+}
+
+// OVATION's strongest point from here to a few degrees north, or null.
+function tgOvationAt(ov, lat, lon) {
+  var grid = ov && ov.coordinates;
+  if (!grid || typeof grid.length !== 'number') return null;
+  var lonKey = ((Math.round(lon) % 360) + 360) % 360;
+  var lo = Math.round(lat), hi = lo + TG_AURORA.northDeg;
+  var best = null, i;
+  for (i = 0; i < grid.length; i++) {
+    var p = grid[i];
+    if (!p || p[0] !== lonKey || p[1] < lo || p[1] > hi) continue;
+    if (best === null || p[2] > best) best = p[2];
+  }
+  return best;
+}
+
+/* What the aurora means for one hour. `oval` (OVATION percent) wins over
+   Kp for the hour it covers; otherwise Kp against what this latitude
+   needs. Dark and clear-ish, or nothing. Under a bright moon a likely
+   aurora is only possible: it may still be there, but it is not worth
+   waking anyone for. */
+function tgAuroraFor(row, kp, need, oval, moonlit) {
+  var a = tgAuroraSky(row, kp, need, oval);
+  if (moonlit && a.level) {
+    a.moon = true;
+    if (a.level === 'likely') a.level = 'possible';
+  }
+  return a;
+}
+
+function tgAuroraSky(row, kp, need, oval) {
+  var none = { level: null, source: null, value: null };
+  if (row.isDay || row.twilight) return none;
+  var kind = tgSkyKind(row.code), ok = false, i;
+  for (i = 0; i < TG_AURORA.sky.length; i++) if (TG_AURORA.sky[i] === kind) ok = true;
+  if (!ok) return none;
+  // The weather code is coarse; the cloud cover, when there is one, says
+  // whether there is actually sky to see it in.
+  if (typeof row.cloud === 'number' && row.cloud > TG_AURORA.maxCloud) return none;
+
+  if (typeof oval === 'number') {
+    if (oval >= TG_AURORA.ovalLikely) return { level: 'likely', source: 'oval', value: oval };
+    if (oval >= TG_AURORA.ovalPossible) return { level: 'possible', source: 'oval', value: oval };
+    return none;
+  }
+  if (typeof kp !== 'number') return none;
+  if (kp >= need) return { level: 'likely', source: 'kp', value: kp };
+  if (kp >= need - TG_AURORA.possibleDeg / TG_AURORA.degPerKp) {
+    return { level: 'possible', source: 'kp', value: kp };
+  }
+  return none;
+}
+
+/* The OVATION grid is almost a megabyte, so it is fetched only when it
+   could change the answer: dark and clear now, and Kp already says an
+   aurora is at least possible here. */
+function tgWantsOvation(f) {
+  return !!(f && f.now && f.now.aurora && f.now.auroraSource === 'kp');
+}
+
 /* "2026-09-08T23:00" local, plus the offset, as a UTC stamp matching
    what SMHI and MET publish. Built by hand rather than through a
    local Date so a visitor's own timezone can never leak into it.
@@ -368,9 +603,9 @@ function tgColumn(H, name) {
 }
 
 function tgNormaliseOm(d) {
-  var res = { hours: [],
-              daylight: { byTime: {}, localHourByTime: {},
-                          sunsetMin: null, nowUtc: null } };
+  var res = { hours: [], history: null,
+              daylight: { byTime: {}, localHourByTime: {}, localDateByTime: {},
+                          cloudByTime: {}, sunsetMin: null, nowUtc: null, today: null } };
   if (!d || !d.hourly || !d.hourly.time || !d.hourly.time.length) return res;
 
   var off = tgNum(d.utc_offset_seconds, 0);
@@ -383,6 +618,7 @@ function tgNormaliseOm(d) {
   var winds = tgColumn(H, 'wind_speed_10m');
   var codes = tgColumn(H, 'weather_code');
   var isDays = tgColumn(H, 'is_day');
+  var clouds = tgColumn(H, 'cloud_cover');
   var i;
 
   /* The hour the user is actually standing in. Open-Meteo's hourly block
@@ -395,6 +631,7 @@ function tgNormaliseOm(d) {
   var cur = d.current && typeof d.current.time === 'string' &&
             d.current.time.length >= 13 ? d.current.time.slice(0, 13) + ':00' : null;
   res.daylight.nowUtc = cur === null ? null : tgLocalToUtc(cur, off);
+  res.daylight.today = cur === null ? null : cur.slice(0, 10);
 
   for (i = 0; i < times.length; i++) {
     var utc = tgLocalToUtc(times[i], off);
@@ -409,10 +646,21 @@ function tgNormaliseOm(d) {
       code: tgNum(codes[i], 3)
     });
     res.daylight.byTime[utc] = tgNum(isDays[i], 0) === 1;
+    res.daylight.cloudByTime[utc] = typeof clouds[i] === 'number' ? clouds[i] : null;
     res.daylight.localHourByTime[utc] = parseInt(times[i].slice(11, 13), 10);
+    res.daylight.localDateByTime[utc] = times[i].slice(0, 10);
   }
 
-  var sunset = d.daily && d.daily.sunset && d.daily.sunset[0];
+  // The daily block now carries weeks of history for the firsts, so its
+  // first row is no longer today: find today's by date.
+  res.history = d.daily || null;
+  var di = 0;
+  if (d.daily && d.daily.time && res.daylight.today) {
+    for (i = 0; i < d.daily.time.length; i++) {
+      if (d.daily.time[i] === res.daylight.today) { di = i; break; }
+    }
+  }
+  var sunset = d.daily && d.daily.sunset && d.daily.sunset[di];
   if (sunset && sunset.length >= 16) {
     res.daylight.sunsetMin = parseInt(sunset.slice(11, 13), 10) * 60 +
                              parseInt(sunset.slice(14, 16), 10);
@@ -459,6 +707,10 @@ function tgForecast(raw) {
 
   var seen = {};
   var rows = [];
+  var novelty = tgNovelty(spine.history, spine.daylight.today);
+  var here = raw.om && typeof raw.om.latitude === 'number' ? raw.om : null;
+  var kpNeed = here ? tgKpNeeded(tgGeomagLat(here.latitude, here.longitude)) : 99;
+  var oval = here && raw.ovation ? tgOvationAt(raw.ovation, here.latitude, here.longitude) : null;
   var i, m;
   for (i = 0; i < blended.length; i++) {
     var b = blended[i];
@@ -472,8 +724,25 @@ function tgForecast(raw) {
     rows.push({
       time: b.time, hour: localHour, feels: b.feels, temp: b.temp,
       pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
-      isDay: isDay, hoursFromNow: 0, contributors: b.sources
+      isDay: isDay, twilight: tgTwilight(spine.daylight.byTime, b.time, isDay),
+      cloud: spine.daylight.cloudByTime[b.time] === undefined ? null : spine.daylight.cloudByTime[b.time],
+      novelty: null, noveltyDays: null,
+      aurora: null, auroraSource: null, auroraValue: null, auroraMoon: false,
+      hoursFromNow: 0, contributors: b.sources
     });
+    var row = rows[rows.length - 1];
+    var aur = tgAuroraFor(row, tgKpAt(raw.kp, b.time), kpNeed,
+                          rows.length === 1 ? oval : null,
+                          here ? tgMoonBright(Date.parse(b.time), here.latitude, here.longitude) : false);
+    row.aurora = aur.level;
+    row.auroraMoon = !!aur.moon;
+    row.auroraSource = aur.source;
+    row.auroraValue = aur.value;
+    if (spine.daylight.localDateByTime[b.time] === spine.daylight.today) {
+      var first = tgNoveltyFor(novelty, row);
+      row.novelty = first.kind;
+      row.noveltyDays = first.days;
+    }
   }
   if (!rows.length) return null;
 
@@ -490,10 +759,16 @@ function tgForecast(raw) {
 
 /* JSON doorway, so Rhino callers can hand over three response bodies
    without marshalling object graphs field by field. */
-function tgForecastJson(omJson, metJson, smhiJson) {
+function tgForecastJson(omJson, metJson, smhiJson, kpJson, ovationJson) {
   return JSON.stringify(tgForecast({
     om: omJson ? JSON.parse(omJson) : null,
     met: metJson ? JSON.parse(metJson) : null,
-    smhi: smhiJson ? JSON.parse(smhiJson) : null
+    smhi: smhiJson ? JSON.parse(smhiJson) : null,
+    kp: kpJson ? JSON.parse(kpJson) : null,
+    ovation: ovationJson ? JSON.parse(ovationJson) : null
   }));
+}
+
+function tgWantsOvationJson(forecastJson) {
+  return tgWantsOvation(forecastJson ? JSON.parse(forecastJson) : null);
 }

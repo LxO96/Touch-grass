@@ -17,7 +17,10 @@ object Weather {
         val now: Scoring.Hour,
         val ahead: List<Scoring.Hour>,
         /** Today's sunset as minutes since local midnight, or null. */
-        val sunsetMinutes: Int?
+        val sunsetMinutes: Int?,
+        /** When it was fetched. A reused forecast's "now" is this hour, not
+            necessarily the current one. */
+        val fetchedAt: Long = 0L
     )
 
     /** MET Norway's terms require an identifying User-Agent. */
@@ -41,14 +44,33 @@ object Weather {
     internal fun reusable(c: Cache, key: String, nowMs: Long, withinMs: Long): Forecast? =
         c.forecast?.takeIf { c.key == key && nowMs - c.at < withinMs }
 
+    private const val KP_URL =
+        "https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json"
+    private const val OVATION_URL =
+        "https://services.swpc.noaa.gov/json/ovation_aurora_latest.json"
+    private const val OVATION_MS = 30 * 60 * 1000L
+
+    // OVATION is almost a megabyte and refreshed about every half hour.
+    private var ovation: Pair<Long, String>? = null
+
+    private fun ovationNow(nowMs: Long): String? {
+        ovation?.let { (at, body) -> if (nowMs - at < OVATION_MS) return body }
+        return body(OVATION_URL)?.also { ovation = nowMs to it }
+    }
+
     fun fetch(lat: Double, lon: Double): Forecast? =
-        fetch(lat, lon, System.currentTimeMillis()) { la, lo ->
-            Triple(
-                body(openMeteoUrl(la, lo)),
-                body(metUrl(la, lo), USER_AGENT),
-                body(smhiUrl(la, lo))
-            )
-        }
+        fetch(
+            lat, lon, System.currentTimeMillis(),
+            get = { la, lo ->
+                Triple(
+                    body(openMeteoUrl(la, lo)),
+                    body(metUrl(la, lo), USER_AGENT),
+                    body(smhiUrl(la, lo))
+                )
+            },
+            kp = { body(KP_URL) },
+            ovationGet = { ovationNow(System.currentTimeMillis()) }
+        )
 
     /**
      * The real work, with the clock and the network passed in so a test can
@@ -59,7 +81,11 @@ object Weather {
         lon: Double,
         nowMs: Long,
         /** The three response bodies, in the order blend.js wants them. */
-        get: (Double, Double) -> Triple<String?, String?, String?>
+        get: (Double, Double) -> Triple<String?, String?, String?>,
+        /** NOAA's Kp forecast, or null. Off by default so tests stay offline. */
+        kp: () -> String? = { null },
+        /** NOAA's OVATION grid, fetched only when it could change the answer. */
+        ovationGet: () -> String? = { null }
     ): Forecast? {
         val key = cacheKey(lat, lon)
         val c = cache
@@ -85,14 +111,22 @@ object Weather {
         // "null on any failure" and it has to hold whatever the JS does:
         // Scoring.call has no try of its own, so an exception here would
         // travel all the way out of CheckWorker.doWork.
+        val kpBody = try { kp() } catch (_: Exception) { null }
         val blended = try {
-            Scoring.blend(om, met, smhi)
+            val first = Scoring.blend(om, met, smhi, kpBody)
+            // The megabyte of OVATION only when it could change "now".
+            if (first != null && Scoring.wantsOvation(first)) {
+                val ov = try { ovationGet() } catch (_: Exception) { null }
+                if (ov != null) Scoring.blend(om, met, smhi, kpBody, ov) ?: first else first
+            } else {
+                first
+            }
         } catch (_: Exception) {
             null
         } ?: return fallback()
 
         val parsed = try {
-            parseBlended(JSONObject(blended))
+            parseBlended(JSONObject(blended), nowMs)
         } catch (_: Exception) {
             null
         } ?: return fallback()
@@ -126,8 +160,10 @@ object Weather {
             "weather_code,wind_speed_10m,is_day" +
             "&hourly=temperature_2m,apparent_temperature," +
             "precipitation_probability,precipitation,weather_code," +
-            "wind_speed_10m,is_day" +
-            "&daily=sunset&forecast_days=2&timezone=auto"
+            "wind_speed_10m,is_day,cloud_cover" +
+            "&daily=sunset,precipitation_sum,snowfall_sum,sunshine_duration," +
+            "apparent_temperature_max&past_days=92&past_hours=1&forecast_hours=48" +
+            "&forecast_days=2&timezone=auto"
 
     private fun metUrl(lat: Double, lon: Double) =
         "https://api.met.no/weatherapi/locationforecast/2.0/complete" +
@@ -162,7 +198,7 @@ object Weather {
         null    // offline, DNS, timeout, or a 404 outside SMHI's area
     }
 
-    private fun parseBlended(d: JSONObject): Forecast? {
+    private fun parseBlended(d: JSONObject, fetchedAt: Long): Forecast? {
         fun hour(o: JSONObject, k: Int) = Scoring.Hour(
             hour = o.getInt("hour"),
             feels = o.getDouble("feels"),
@@ -171,6 +207,12 @@ object Weather {
             wind = o.getDouble("wind"),
             isDay = o.getBoolean("isDay"),
             code = o.getInt("code"),
+            twilight = if (o.isNull("twilight")) null else o.optString("twilight").ifEmpty { null },
+            novelty = if (o.isNull("novelty")) null else o.optString("novelty").ifEmpty { null },
+            noveltyDays = if (o.isNull("noveltyDays")) null else o.optInt("noveltyDays"),
+            aurora = if (o.isNull("aurora")) null else o.optString("aurora").ifEmpty { null },
+            auroraSource = if (o.isNull("auroraSource")) null else o.optString("auroraSource").ifEmpty { null },
+            auroraValue = if (o.isNull("auroraValue")) null else o.optDouble("auroraValue"),
             hoursFromNow = k,
             label = label(o.getInt("hour"))
         )
@@ -181,7 +223,7 @@ object Weather {
         for (i in 0 until arr.length()) ahead += hour(arr.getJSONObject(i), i + 1)
 
         val sunset = if (d.isNull("sunsetMin")) null else d.getInt("sunsetMin")
-        return Forecast(now, ahead, sunset)
+        return Forecast(now, ahead, sunset, fetchedAt)
     }
 
     fun label(hr: Int) = when {

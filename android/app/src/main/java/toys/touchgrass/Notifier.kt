@@ -20,6 +20,8 @@ object Notifier {
 
     private const val ID_NUDGE = 1001
     private const val ID_WINDOW = 1002
+    const val ID_CHECKING = 1003
+    private const val ID_AURORA = 1004
 
     fun ensureChannels(c: Context) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -93,6 +95,44 @@ object Notifier {
                 .setPriority(NotificationCompat.PRIORITY_DEFAULT)
                 .build()
         )
+    }
+
+    fun aurora(c: Context, text: String) {
+        ensureChannels(c)
+        post(
+            c, ID_AURORA,
+            NotificationCompat.Builder(c, CHANNEL_WINDOW)
+                .setSmallIcon(R.drawable.ic_stat_grass)
+                .setContentTitle("Aurora likely now")
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(text))
+                .setContentIntent(openApp(c))
+                .setAutoCancel(true)
+                .setCategory(NotificationCompat.CATEGORY_REMINDER)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .build()
+        )
+    }
+
+    /** Opening the app answers whatever these were saying. */
+    fun clearAll(c: Context) {
+        NotificationManagerCompat.from(c).cancel(ID_NUDGE)
+        NotificationManagerCompat.from(c).cancel(ID_WINDOW)
+        NotificationManagerCompat.from(c).cancel(ID_AURORA)
+    }
+
+    /**
+     * Before Android 12, expedited work runs as a foreground service and
+     * needs a notification for the few seconds it takes. Quiet and brief.
+     */
+    fun checking(c: Context): Notification {
+        ensureChannels(c)
+        return NotificationCompat.Builder(c, CHANNEL_NUDGE)
+            .setSmallIcon(R.drawable.ic_stat_grass)
+            .setContentTitle("Checking the weather")
+            .setPriority(NotificationCompat.PRIORITY_MIN)
+            .setSilent(true)
+            .build()
     }
 
     fun window(c: Context, title: String, text: String, loud: Boolean) {

@@ -116,71 +116,154 @@ function renderYear(log, L) {
   const cal = $('cal');
   cal.innerHTML = '';
 
-  const gutter = document.createElement('div');
-  gutter.className = 'cal-gutter';
-  [L.weekdays[0], '', L.weekdays[2], '', L.weekdays[4], '', L.weekdays[6]].forEach((d) => {
-    const s = document.createElement('span');
-    s.textContent = d;
-    gutter.append(s);
-  });
-
-  const grid = document.createElement('div');
-  grid.className = 'cal-grid';
-
-  const jan1 = new Date(year, 0, 1);
-  const lead = (jan1.getDay() + 6) % 7;
-  const dec31 = new Date(year, 11, 31);
-  const totalDays = Math.round((dec31 - jan1) / 86400000) + 1;
-  const weeks = Math.ceil((lead + totalDays) / 7);
-
-  grid.style.gridTemplateColumns = `repeat(${weeks}, var(--cell))`;
-
-  const months = document.createElement('div');
-  months.className = 'cal-months';
-  months.style.gridTemplateColumns = `repeat(${weeks}, var(--cell))`;
+  // Twelve columns, one per month; thirty-one rows, one per day of the
+  // month. Reads like a wall calendar, and fits a phone without scrolling.
+  const corner = document.createElement('span');
+  corner.className = 'yc-corner';
+  cal.append(corner);
   for (let m = 0; m < 12; m++) {
-    const firstOfMonth = new Date(year, m, 1);
-    const col = Math.floor((lead + Math.round((firstOfMonth - jan1) / 86400000)) / 7) + 1;
-    const s = document.createElement('span');
-    s.textContent = L.months[m];
-    s.style.gridColumn = `${col} / span 4`;
-    months.append(s);
+    const h = document.createElement('span');
+    h.className = 'yc-month';
+    // Initials: three letters would overlap at this size. The full name
+    // is still there for a hover or a screen reader.
+    h.textContent = L.months[m].charAt(0);
+    h.title = L.monthsLong[m];
+    h.setAttribute('aria-label', L.monthsLong[m]);
+    cal.append(h);
   }
 
-  for (let i = 0; i < lead; i++) {
-    const blank = document.createElement('span');
-    blank.className = 'cell blank';
-    grid.append(blank);
-  }
+  for (let d = 1; d <= 31; d++) {
+    const num = document.createElement('span');
+    num.className = 'yc-day';
+    num.textContent = d % 5 === 0 || d === 1 ? String(d) : '';
+    cal.append(num);
 
-  for (let i = 0; i < totalDays; i++) {
-    const key = dayKey(new Date(year, 0, 1 + i));
-    const n = log[key] || 0;
-    const cell = document.createElement('button');
-    cell.type = 'button';
-    cell.className = `cell lv${level(n)}`;
-    cell.dataset.key = key;
-    if (key === todayK) cell.classList.add('today');
-    if (key > todayK) { cell.classList.add('future'); cell.disabled = true; }
-    cell.title = `${key} — ${L.tripsOn(n)}`;
-    grid.append(cell);
+    for (let m = 0; m < 12; m++) {
+      const date = new Date(year, m, d);
+      if (date.getMonth() !== m) {           // 30 February and the like
+        const blank = document.createElement('span');
+        blank.className = 'cell blank';
+        cal.append(blank);
+        continue;
+      }
+      const key = dayKey(date);
+      const n = log[key] || 0;
+      const cell = document.createElement('button');
+      cell.type = 'button';
+      cell.className = `cell lv${level(n)}`;
+      cell.dataset.key = key;
+      if (key === todayK) cell.classList.add('today');
+      if (key > todayK) { cell.classList.add('future'); cell.disabled = true; }
+      cell.title = `${key} — ${L.tripsOn(n)}`;
+      cal.append(cell);
+    }
   }
-
-  const stack = document.createElement('div');
-  stack.className = 'cal-stack';
-  stack.append(months, grid);
-  cal.append(gutter, stack);
 }
 
-/* ---------- tapping a day cycles it: none -> 1 -> 2 -> 3 -> none ---------- */
+/* ---------- press and hold a day to change it ----------
+
+   A quick tap only says what the day holds — scrolling past the grid
+   must never edit the year. Pressing and holding for half a second opens
+   a small popup to set the day's trips, with a buzz so you know it took.
+   From the keyboard, Enter opens it: there is no long-press on a
+   keyboard. */
+
+const HOLD_MS = 500;
+let dayOpen = null;   // the key the popup is showing
+
+function dayNote(key) {
+  const L = T().ui;
+  const note = $('day-note');
+  if (note) note.textContent = `${key} — ${L.tripsOn(visitsOn(key))}. ${L.holdToChange}`;
+}
+
+function paintDayDialog() {
+  const L = T().ui;
+  const n = visitsOn(dayOpen);
+  const d = new Date(dayOpen + 'T00:00:00');
+  $('day-title').textContent = `${d.getDate()} ${L.monthsLong[d.getMonth()]}`;
+  $('day-count').textContent = String(n);
+  $('day-words').textContent = L.tripsOn(n);
+  $('day-less').disabled = n <= 0;
+  $('day-more').disabled = n >= TRIPS_MAX;
+}
+
+function openDay(key) {
+  dayOpen = key;
+  // The app buzzes natively: Chrome refuses navigator.vibrate before a tap,
+  // and a long-press is not one. In a browser, try anyway.
+  try {
+    if (typeof TouchGrassAndroid !== 'undefined' && TouchGrassAndroid.buzz) TouchGrassAndroid.buzz();
+    else if (navigator.vibrate) navigator.vibrate(25);
+  } catch {}
+  paintDayDialog();
+  const dlg = $('day-dialog');
+  if (dlg.showModal) dlg.showModal(); else dlg.setAttribute('open', '');
+  $('day-done').focus();
+}
+
+function stepDay(delta) {
+  if (!dayOpen) return;
+  setVisits(dayOpen, stepTrips(visitsOn(dayOpen), delta));
+  renderRecord();
+  paintDayDialog();
+  dayNote(dayOpen);
+}
+
+function closeDay() {
+  const dlg = $('day-dialog');
+  if (dlg.close) dlg.close(); else dlg.removeAttribute('open');
+}
+
+$('day-less').addEventListener('click', () => stepDay(-1));
+$('day-more').addEventListener('click', () => stepDay(+1));
+$('day-done').addEventListener('click', closeDay);
+// A tap on the dimmed backdrop, outside the box, closes it too.
+$('day-dialog').addEventListener('click', (e) => {
+  if (e.target === $('day-dialog')) closeDay();
+});
+$('day-dialog').addEventListener('close', () => { dayOpen = null; });
 
 function wireDayTaps(hostId) {
-  $(hostId).addEventListener('click', (e) => {
+  const host = $(hostId);
+  let timer = null, startX = 0, startY = 0, held = false;
+
+  const clearHold = () => {
+    if (timer) { clearTimeout(timer); timer = null; }
+    host.querySelectorAll('.holding').forEach((c) => c.classList.remove('holding'));
+  };
+
+  host.addEventListener('pointerdown', (e) => {
     const cell = e.target.closest('[data-key]');
     if (!cell || cell.disabled) return;
-    const key = cell.dataset.key;
-    setVisits(key, (visitsOn(key) + 1) % 4);
-    renderRecord();
+    held = false;
+    startX = e.clientX; startY = e.clientY;
+    cell.classList.add('holding');
+    timer = setTimeout(() => {
+      timer = null;
+      held = true;
+      cell.classList.remove('holding');
+      openDay(cell.dataset.key);
+    }, HOLD_MS);
+  });
+
+  // A finger that moves is scrolling, not holding.
+  host.addEventListener('pointermove', (e) => {
+    if (timer && Math.hypot(e.clientX - startX, e.clientY - startY) > 10) clearHold();
+  });
+  host.addEventListener('pointerup', clearHold);
+  host.addEventListener('pointercancel', clearHold);
+  host.addEventListener('pointerleave', clearHold);
+
+  // Long-press would otherwise open the phone's own menu.
+  host.addEventListener('contextmenu', (e) => e.preventDefault());
+
+  host.addEventListener('click', (e) => {
+    const cell = e.target.closest('[data-key]');
+    if (!cell || cell.disabled) return;
+    if (held) { held = false; return; }            // the hold already opened it
+    if (e.detail === 0) openDay(cell.dataset.key);  // Enter / Space
+    else dayNote(cell.dataset.key);                 // a tap only reports
   });
 }
 
@@ -190,21 +273,90 @@ wireDayTaps('cal');
 $('view-month').addEventListener('click', () => { saveCalView('month'); renderRecord(); });
 $('view-year').addEventListener('click', () => { saveCalView('year'); renderRecord(); });
 
-$('prev-month').addEventListener('click', () => {
-  CAL.month--;
-  if (CAL.month < 0) { CAL.month = 11; CAL.year--; }
+function stepMonth(delta) {
+  const to = shiftMonth(CAL.year, CAL.month, delta);
+  if (!to) return false;
+  CAL.year = to.year;
+  CAL.month = to.month;
   renderRecord();
-});
+  return true;
+}
 
-$('next-month').addEventListener('click', () => {
-  const now = new Date();
-  // No point walking into months that haven't happened.
-  if (CAL.year > now.getFullYear() ||
-      (CAL.year === now.getFullYear() && CAL.month >= now.getMonth())) return;
-  CAL.month++;
-  if (CAL.month > 11) { CAL.month = 0; CAL.year++; }
-  renderRecord();
-});
+$('prev-month').addEventListener('click', () => stepMonth(-1));
+$('next-month').addEventListener('click', () => stepMonth(+1));
+
+/* Slide a finger sideways across the month to change it. The grid follows
+   the finger, and a swipe past a quarter of its width (or a quick flick)
+   turns the page; anything less springs back. Vertical movement is left to
+   the page, so scrolling still works, and the press-and-hold on a day
+   already gives up as soon as the finger moves. */
+(function swipeMonths() {
+  const host = $('month-view');
+  const grid = $('mgrid');
+  let x0 = 0, y0 = 0, t0 = 0, dx = 0, tracking = false, sideways = false;
+
+  const settle = (to, then) => {
+    grid.style.transition = 'transform 160ms ease-out';
+    grid.style.transform = `translateX(${to}px)`;
+    setTimeout(() => {
+      grid.style.transition = '';
+      grid.style.transform = '';
+      if (then) then();
+    }, 170);
+  };
+
+  host.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('.stepbtn')) return;
+    tracking = true; sideways = false;
+    x0 = e.clientX; y0 = e.clientY; t0 = Date.now(); dx = 0;
+  });
+
+  host.addEventListener('pointermove', (e) => {
+    if (!tracking) return;
+    dx = e.clientX - x0;
+    const dy = e.clientY - y0;
+    if (!sideways) {
+      if (Math.abs(dy) > 12 && Math.abs(dy) > Math.abs(dx)) { tracking = false; return; }
+      if (Math.abs(dx) > 12) sideways = true;
+    }
+    if (sideways) grid.style.transform = `translateX(${dx}px)`;
+  });
+
+  const end = () => {
+    if (!tracking) return;
+    tracking = false;
+    if (!sideways) return;
+    const width = grid.offsetWidth || 300;
+    const quick = Math.abs(dx) > 40 && Date.now() - t0 < 250;
+    const delta = dx < 0 ? +1 : -1;               // left shows the next month
+    if ((Math.abs(dx) > width / 4 || quick) && shiftMonth(CAL.year, CAL.month, delta)) {
+      settle(dx < 0 ? -width : width, () => {
+        stepMonth(delta);
+        // The new month comes in from the other side. Park it there with no
+        // transition and force the browser to lay that out before sliding
+        // it home — otherwise the off-screen start is never drawn and the
+        // new month appears to leave the same way the old one did.
+        grid.style.transition = 'none';
+        grid.style.transform = `translateX(${dx < 0 ? width : -width}px)`;
+        void grid.offsetWidth;
+        settle(0);
+      });
+    } else {
+      settle(0);                                    // not far enough, or the future
+    }
+    swipedAt = Date.now();
+  };
+
+  // A swipe is not a tap on whichever day it started on — but only the
+  // click that immediately follows it; the next real tap goes through.
+  let swipedAt = 0;
+  host.addEventListener('click', (ev) => {
+    if (Date.now() - swipedAt < 400) { ev.stopPropagation(); ev.preventDefault(); }
+  }, true);
+
+  host.addEventListener('pointerup', end);
+  host.addEventListener('pointercancel', () => { tracking = false; settle(0); });
+})();
 
 /* ---------- go ---------- */
 

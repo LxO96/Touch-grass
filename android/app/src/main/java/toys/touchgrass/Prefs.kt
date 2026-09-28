@@ -32,6 +32,7 @@ object Prefs {
             putString("mode", n.optString("mode", "clock"))
             putFloat("beforeSunset", n.optDouble("beforeSunset", 2.0).toFloat())
             putBoolean("watch", n.optBoolean("watch", false))
+            putBoolean("auroraAlert", n.optBoolean("aurora", false))
             putInt("windowStart", n.optInt("windowStart", 9))
             putInt("windowEnd", n.optInt("windowEnd", 20))
             putInt("greatBar", n.optInt("greatBar", 75))
@@ -50,10 +51,19 @@ object Prefs {
             putFloat("heat", s.optDouble("heat", 1.0).toFloat())
             putFloat("windDial", s.optDouble("wind", 1.0).toFloat())
             putFloat("dark", s.optDouble("dark", 1.0).toFloat())
+            putFloat("twilight", s.optDouble("twilight", 1.0).toFloat())
+            putString("sky", (s.optJSONObject("sky") ?: org.json.JSONObject()).toString())
+            putBoolean("novelty", s.optBoolean("novelty", true))
+            putBoolean("aurora", s.optBoolean("aurora", true))
             putInt("bar", s.optInt("bar", 60))
 
             putInt("visitsToday", o.optInt("visitsToday", 0))
             putString("today", o.optString("today", ""))
+
+            // The page's whole state as it sent it: Android's backup carries
+            // this file, the page's own storage it does not, so this is
+            // what the page restores from after a reinstall or a new phone.
+            putString("pageState", json)
 
             if (p != null) {
                 putFloat("lat", p.optDouble("lat", 0.0).toFloat())
@@ -64,12 +74,27 @@ object Prefs {
         }.apply()
     }
 
+    /** The page's state as it last sent it, or null if it never has. */
+    fun pageState(c: Context): String? = sp(c).getString("pageState", null)
+
+    /** The page's per-kind weather ratings, as stored by [store]. */
+    private fun skyRatings(c: Context): Map<String, Int> = try {
+        val o = org.json.JSONObject(sp(c).getString("sky", "{}") ?: "{}")
+        o.keys().asSequence().associateWith { o.optInt(it) }
+    } catch (_: Exception) {
+        emptyMap()
+    }
+
     fun dials(c: Context) = Scoring.Dials(
         rain = sp(c).getFloat("rain", 1f).toDouble(),
         cold = sp(c).getFloat("cold", 1f).toDouble(),
         heat = sp(c).getFloat("heat", 1f).toDouble(),
         wind = sp(c).getFloat("windDial", 1f).toDouble(),
         dark = sp(c).getFloat("dark", 1f).toDouble(),
+        twilight = sp(c).getFloat("twilight", 1f).toDouble(),
+        sky = skyRatings(c),
+        novelty = sp(c).getBoolean("novelty", true),
+        aurora = sp(c).getBoolean("aurora", true),
         bar = sp(c).getInt("bar", 60)
     )
 
@@ -152,6 +177,9 @@ object Prefs {
     }
 
     fun watchOn(c: Context) = sp(c).getBoolean("watch", false)
+    fun auroraAlertOn(c: Context) = sp(c).getBoolean("auroraAlert", false)
+    fun alreadyAuroraAlerted(c: Context, night: String) = sp(c).getString("auroraOn", "") == night
+    fun markAuroraAlerted(c: Context, night: String) = sp(c).edit().putString("auroraOn", night).apply()
     fun windowStart(c: Context) = sp(c).getInt("windowStart", 9)
     fun windowEnd(c: Context) = sp(c).getInt("windowEnd", 20)
     fun greatBar(c: Context) = sp(c).getInt("greatBar", 75)
@@ -167,7 +195,12 @@ object Prefs {
 
     // --- our own bookkeeping ---------------------------------------------
 
+    /** When the app was last brought on screen, epoch millis; 0 if never. */
+    fun lastOpened(c: Context) = sp(c).getLong("openedAt", 0L)
+    fun markOpened(c: Context, at: Long) = sp(c).edit().putLong("openedAt", at).apply()
+
     /** So a day gets at most one nudge and one opportunity alert. */
+
     fun alreadyNudged(c: Context, day: String) = sp(c).getString("nudgedOn", "") == day
     fun markNudged(c: Context, day: String) = sp(c).edit().putString("nudgedOn", day).apply()
 

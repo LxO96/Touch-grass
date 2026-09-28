@@ -45,7 +45,8 @@
         <button type="button" class="modebtn" id="view-year" data-t="viewYear">YEAR</button>
       </div>
     </div>
-    <p class="hint" data-t="calHint">Tap any day to correct it.</p>
+    <p class="hint" data-t="calHint">Press and hold a day to change it.</p>
+    <p class="hint small day-note" id="day-note" aria-live="polite">&nbsp;</p>
 
     <!-- month view: big, thumb-sized targets -->
     <div id="month-view">
@@ -60,9 +61,7 @@
 
     <!-- year view: the whole thing at a glance -->
     <div id="year-view">
-      <div class="cal-scroll">
-        <div class="cal" id="cal"></div>
-      </div>
+      <div class="cal" id="cal"></div>
     </div>
 
     <div class="legend">
@@ -72,6 +71,18 @@
       <span data-t="lots">lots</span>
     </div>
   </section>
+
+  <!-- press and hold a day: set its trips -->
+  <dialog class="day-dialog" id="day-dialog" aria-labelledby="day-title">
+    <h3 id="day-title"></h3>
+    <div class="day-stepper">
+      <button type="button" class="btn day-step" id="day-less" data-t-aria="dayLess" aria-label="One fewer">&minus;</button>
+      <span class="day-count" id="day-count" aria-live="polite">0</span>
+      <button type="button" class="btn day-step" id="day-more" data-t-aria="dayMore" aria-label="One more">+</button>
+    </div>
+    <p class="day-words" id="day-words"></p>
+    <button type="button" class="btn big-btn" id="day-done" data-t="dayDone">DONE</button>
+  </dialog>
 
   <footer>
     <span class="nofont">&#9632;</span> <span data-t="footer">go outside</span> <span class="nofont">&#9632;</span>

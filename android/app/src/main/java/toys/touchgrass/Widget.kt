@@ -64,9 +64,11 @@ class Widget : AppWidgetProvider() {
 
         const val ACTION_LOG = "toys.touchgrass.LOG_VISIT"
 
-        // Height in dp at which each extra piece earns its place.
-        private const val MEDIUM_AT = 110
-        private const val LARGE_AT = 200
+        // Height in dp at which each extra piece earns its place, measured
+        // against the height the widget really has (see render). Two rows
+        // of a phone's grid fit the log button, three fit the weeks too.
+        private const val MEDIUM_AT = 150
+        private const val LARGE_AT = 280
 
         fun hasAny(c: Context): Boolean {
             val mgr = AppWidgetManager.getInstance(c) ?: return false
@@ -81,9 +83,18 @@ class Widget : AppWidgetProvider() {
         }
 
         private fun render(c: Context, mgr: AppWidgetManager, id: Int) {
+            /* The launcher reports two sizes: MAX_HEIGHT is the widget's
+               height in portrait, MIN_HEIGHT its height in landscape. Using
+               MIN_HEIGHT on a portrait home screen sized the widget as
+               barely half its real height, so a tall widget never got its
+               heatmap and was mostly empty space. */
+            val portrait = c.resources.configuration.orientation !=
+                android.content.res.Configuration.ORIENTATION_LANDSCAPE
             val heightDp = try {
-                mgr.getAppWidgetOptions(id)
-                    ?.getInt(AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0) ?: 0
+                mgr.getAppWidgetOptions(id)?.getInt(
+                    if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT
+                    else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0
+                ) ?: 0
             } catch (_: Exception) {
                 0
             }

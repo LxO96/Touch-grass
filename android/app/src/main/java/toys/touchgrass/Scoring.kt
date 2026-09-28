@@ -25,6 +25,13 @@ object Scoring {
         val heat: Double = 1.0,
         val wind: Double = 1.0,
         val dark: Double = 1.0,
+        val twilight: Double = 1.0,
+        /** Kind of weather to rating, 0 love it .. 4 hate it; missing kinds use scoring.js's defaults. */
+        val sky: Map<String, Int> = emptyMap(),
+        /** Whether firsts earn their bonus. */
+        val novelty: Boolean = true,
+        /** Whether a likely aurora earns its bonus. */
+        val aurora: Boolean = true,
         val bar: Int = 60
     )
 
@@ -36,6 +43,16 @@ object Scoring {
         val wind: Double,
         val isDay: Boolean,
         val code: Int,
+        /** "dusk", "dawn" or null — marked by blend.js from Open-Meteo's daylight. */
+        val twilight: String? = null,
+        /** "rain", "snow", "sun", "warm" or null — a first, marked by blend.js. */
+        val novelty: String? = null,
+        val noveltyDays: Int? = null,
+        /** "likely", "possible" or null — marked by blend.js from Kp or OVATION. */
+        val aurora: String? = null,
+        /** "kp" or "oval": which reading auroraValue is. */
+        val auroraSource: String? = null,
+        val auroraValue: Double? = null,
         val hoursFromNow: Int = 0,
         val label: String = ""
     )
@@ -107,12 +124,9 @@ object Scoring {
         }
     }
 
+    // JSON, like decide and trends: the dials now carry an object.
     fun score(h: Hour, d: Dials): Int = call(
-        "tgScoreArgs",
-        arrayOf(
-            h.hour, h.feels, h.pop, h.precip, h.wind, h.isDay, h.code,
-            d.rain, d.cold, d.heat, d.wind, d.dark
-        )
+        "tgScoreJson", arrayOf<Any?>(hourJson(h), dialsJson(d))
     ) { RhinoContext.toNumber(it).toInt() }
 
     fun isRisky(h: Hour): Boolean = call(
@@ -124,12 +138,20 @@ object Scoring {
     ) { RhinoContext.toBoolean(it) }
 
     /** The blend, evaluated by the web app's own blend.js. */
-    fun blend(omJson: String?, metJson: String?, smhiJson: String?): String? =
+    fun blend(
+        omJson: String?, metJson: String?, smhiJson: String?,
+        kpJson: String? = null, ovationJson: String? = null
+    ): String? =
         call(
             "tgForecastJson",
-            arrayOf<Any?>(omJson, metJson, smhiJson)
+            arrayOf<Any?>(omJson, metJson, smhiJson, kpJson, ovationJson)
         ) { RhinoContext.toString(it) }
             .takeIf { it != "null" && it.isNotBlank() }
+
+    /** Whether the OVATION grid could change the answer for this forecast. */
+    fun wantsOvation(blendedJson: String): Boolean = call(
+        "tgWantsOvationJson", arrayOf<Any?>(blendedJson)
+    ) { RhinoContext.toBoolean(it) }
 
     /** One outcome, decided by the same tgDecide() the page uses. */
     data class Verdict(
@@ -207,11 +229,17 @@ object Scoring {
 
     private fun dialsJson(d: Dials): String =
         """{"rain":${d.rain},"cold":${d.cold},"heat":${d.heat},""" +
-        """"wind":${d.wind},"dark":${d.dark},"bar":${d.bar}}"""
+        """"wind":${d.wind},"dark":${d.dark},"twilight":${d.twilight},"bar":${d.bar},""" +
+        """"sky":${org.json.JSONObject(d.sky as Map<*, *>)},"novelty":${d.novelty},"aurora":${d.aurora}}"""
 
     private fun hourJson(h: Hour): String =
         """{"hour":${h.hour},"feels":${h.feels},"pop":${h.pop},"precip":${h.precip},""" +
         """"wind":${h.wind},"isDay":${h.isDay},"code":${h.code},""" +
+        """"twilight":${h.twilight?.let { quote(it) } ?: "null"},""" +
+        """"novelty":${h.novelty?.let { quote(it) } ?: "null"},""" +
+        """"noveltyDays":${h.noveltyDays ?: "null"},""" +
+        """"aurora":${h.aurora?.let { quote(it) } ?: "null"},""" +
+        """"auroraValue":${h.auroraValue ?: "null"},""" +
         """"hoursFromNow":${h.hoursFromNow},"label":${quote(h.label)}}"""
 
     private fun quote(s: String): String = org.json.JSONObject.quote(s)

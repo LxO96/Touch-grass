@@ -57,6 +57,41 @@ class MainActivity : AppCompatActivity() {
         pendingOrigin = null
     }
 
+    /* "Restore from file": the page's <input type=file> asks the WebView,
+       the WebView asks here, and the system picker answers. */
+    private var pendingFiles: android.webkit.ValueCallback<Array<Uri>>? = null
+    private val pickFile = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        pendingFiles?.onReceiveValue(
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        )
+        pendingFiles = null
+    }
+
+    /* "Save": the system's own save dialog picks the place (Downloads,
+       Drive, anywhere), and the page is told whether it worked, so it
+       only says "saved" when there is a file. */
+    private var pendingSave: String? = null
+    private val saveFile = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val text = pendingSave
+        pendingSave = null
+        val result = when {
+            uri == null -> "null"                  // they changed their mind
+            text == null -> "false"
+            else -> try {
+                contentResolver.openOutputStream(uri, "wt")!!.use { it.write(text.toByteArray()) }
+                "true"
+            } catch (e: Exception) {
+                Log.e(TAG, "saving the backup failed", e)
+                "false"
+            }
+        }
+        web.evaluateJavascript("window.tgBackupSaved && tgBackupSaved($result)", null)
+    }
+
     private val askForNotifications = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* granted or not, the rest of the app is unaffected */
@@ -90,6 +125,30 @@ class MainActivity : AppCompatActivity() {
         }
 
         /**
+         * A short buzz for the press-and-hold on the year page. Chrome only
+         * lets a page vibrate after a tap, and a long-press is not one, so
+         * the first hold of a visit would otherwise be silent.
+         */
+        @JavascriptInterface
+        fun buzz() {
+            try {
+                val v = if (android.os.Build.VERSION.SDK_INT >= 31) {
+                    getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
+                } else {
+                    @Suppress("DEPRECATION")
+                    getSystemService(android.os.Vibrator::class.java)
+                }
+                if (android.os.Build.VERSION.SDK_INT >= 26) {
+                    v?.vibrate(android.os.VibrationEffect.createOneShot(25, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
+                } else {
+                    @Suppress("DEPRECATION")
+                    v?.vibrate(25)
+                }
+            } catch (_: Exception) {
+            }
+        }
+
+        /**
          * Trips logged from the widget while the page wasn't running.
          * Returns them once and forgets them, so the page can fold them
          * into localStorage — which stays the only source of truth.
@@ -102,6 +161,31 @@ class MainActivity : AppCompatActivity() {
                 n
             } catch (_: Exception) {
                 0
+            }
+        }
+
+        /**
+         * The copy of the page's state that Android's backup carries, for
+         * the page to restore from when its own storage comes back empty.
+         * Empty string when there is none.
+         */
+        @JavascriptInterface
+        fun savedState(): String = try {
+            Prefs.pageState(this@MainActivity) ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+
+        @JavascriptInterface
+        fun saveBackup(text: String, filename: String) {
+            runOnUiThread {
+                pendingSave = text
+                try {
+                    saveFile.launch(safeName(filename))
+                } catch (_: ActivityNotFoundException) {
+                    pendingSave = null
+                    web.evaluateJavascript("window.tgBackupSaved && tgBackupSaved(false)", null)
+                }
             }
         }
 
@@ -176,16 +260,27 @@ class MainActivity : AppCompatActivity() {
             )
             setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.sun))
         }
-        setContentView(web)
+        // A WebView ignores its own padding for the page it draws, so padding
+        // the WebView let the page scroll up under the status bar. Pad a plain
+        // container instead and the page itself stays clear of it.
+        val frame = android.widget.FrameLayout(this).apply {
+            setBackgroundColor(ContextCompat.getColor(this@MainActivity, R.color.sun))
+            addView(web)
+        }
+        setContentView(frame)
 
         // Edge-to-edge is mandatory from API 35, so inset the page by hand.
-        // The window background is the same mustard as the page, so the
-        // status bar strip blends into the header instead of cutting it off.
-        ViewCompat.setOnApplyWindowInsetsListener(web) { view, insets ->
+        // The container is the same mustard as the page, so the status bar
+        // strip blends into the header instead of cutting it off.
+        ViewCompat.setOnApplyWindowInsetsListener(frame) { view, insets ->
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // Edge-to-edge also means the keyboard no longer shrinks the
+            // window by itself: leave room for it, or a focused field ends
+            // up underneath it.
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
             WindowInsetsCompat.CONSUMED
         }
 
@@ -205,6 +300,19 @@ class MainActivity : AppCompatActivity() {
         if (savedInstanceState == null) {
             web.loadUrl("$BASE_URL/assets/index.html")
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        AppState.inForeground = true
+        Prefs.markOpened(this, System.currentTimeMillis())
+        Notifier.clearAll(this)
+        Scheduler.sync(this)
+    }
+
+    override fun onPause() {
+        AppState.inForeground = false
+        super.onPause()
     }
 
     private fun configure(settings: WebSettings) {
@@ -278,6 +386,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onShowFileChooser(
+                view: WebView,
+                callback: android.webkit.ValueCallback<Array<Uri>>,
+                params: FileChooserParams
+            ): Boolean {
+                // A chooser still open never answered; let it go first.
+                pendingFiles?.onReceiveValue(null)
+                pendingFiles = callback
+                return try {
+                    pickFile.launch(params.createIntent())
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    pendingFiles = null
+                    false
+                }
+            }
+
             override fun onGeolocationPermissionsHidePrompt() {
                 pendingCallback = null
                 pendingOrigin = null
@@ -323,8 +448,8 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(Intent.createChooser(send, null))
         } catch (_: Exception) {
-            // Nothing to share to, or no room to write. The page keeps the
-            // copy button, so this is not worth crashing over.
+            // Nothing to share to, or no room to write. The page still has
+            // SAVE, so this is not worth crashing over.
         }
     }
 

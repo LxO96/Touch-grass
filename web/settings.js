@@ -46,6 +46,29 @@ $('unit-kmh').addEventListener('click', () => pickWind('kmh'));
 $('unit-ms').addEventListener('click', () => pickWind('ms'));
 $('unit-mph').addEventListener('click', () => pickWind('mph'));
 
+/* Which services the last forecast actually came from, and when — read
+   from the forecast the Today page cached, so nothing is fetched here. */
+function creditName(key) {
+  for (const c of TG_CREDITS) if (c.key === key) return c.name;
+  return key;
+}
+
+function renderSources() {
+  const blend = $('blend-sources');
+  const at = $('fetched-at');
+  if (!blend || !at) return;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem('touchgrass.forecast') || 'null'); } catch {}
+  const sources = cached && cached.data && cached.data.sources;
+  if (!sources || !sources.length) { blend.textContent = ''; at.innerHTML = '&nbsp;'; return; }
+  const w = tgWeigh(sources);
+  blend.textContent = `${T().ui.blendedFrom} ` + tgCreditOrder(sources)
+    .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
+    .join(', ');
+  at.textContent = T().ui.updated(new Date(cached.at)
+    .toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+}
+
 // Language touches every label on the page, including ones built by JS.
 function relabelEverything() {
   applyStatic();
@@ -55,6 +78,7 @@ function relabelEverything() {
   paintUnits();
   renderPreview();
   refreshBackup();
+  renderSources();
   $('btn-toggle-raw').textContent =
     $('raw-wrap').hidden ? T().ui.showTheData : T().ui.hideTheData;
   document.title = T().ui.settings + ' | Touch Grass';
@@ -72,7 +96,8 @@ function buildDials() {
     cold: [L.dialCold, L.dialColdLow, L.dialColdHigh, L.dialColdBlurb],
     heat: [L.dialHeat, L.dialHeatLow, L.dialHeatHigh, L.dialHeatBlurb],
     wind: [L.dialWind, L.dialWindLow, L.dialWindHigh, L.dialWindBlurb],
-    dark: [L.dialDark, L.dialDarkLow, L.dialDarkHigh, L.dialDarkBlurb]
+    dark: [L.dialDark, L.dialDarkLow, L.dialDarkHigh, L.dialDarkBlurb],
+    twilight: [L.dialTwilight, L.dialTwilightLow, L.dialTwilightHigh, L.dialTwilightBlurb]
   };
 
   for (const d of DIALS) {
@@ -124,11 +149,194 @@ function buildDials() {
   }
 
   for (const d of DIALS) paintDial(d.key);
+  buildSkies();
+}
+
+/* ---------- ranking the skies ----------
+
+   Five bands, Love it down to Hate it, and each kind of weather sits in
+   one. Drag a kind by its grip into another band; or tap it, then tap the
+   band it belongs in — dragging inside a WebView can be fiddly, and a tap
+   always works. Arrow keys move a focused kind one band up or down. */
+
+let skyPicked = null;   // a kind tapped and waiting for a band
+
+function buildSkies() {
+  const host = $('skies');
+  if (!host) return;
+  host.innerHTML = '';
+  const L = T().ui;
+  paintNovelty();
+
+  const hint = document.createElement('p');
+  hint.className = 'hint small sky-hint';
+  hint.setAttribute('aria-live', 'polite');
+  hint.textContent = skyPicked ? L.skyPickHint(L.skyKinds[skyPicked]) : '';
+  host.append(hint);
+
+  skyBands(SETTINGS.sky).forEach((kinds, rating) => {
+    const band = document.createElement('section');
+    band.className = 'sky-band' + (skyPicked ? ' can-drop' : '');
+    band.dataset.rating = String(rating);
+
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'sky-band-head';
+    const face = document.createElement('span');
+    face.textContent = SKY_BAND_FACES[rating];
+    const name = document.createElement('span');
+    name.className = 'sky-band-name';
+    name.textContent = L.skyRatings[rating];
+    const pts = TG_SKY_POINTS[rating];
+    const score = document.createElement('span');
+    score.className = 'sky-band-pts';
+    score.textContent = pts ? '\u2212' + pts : '0';
+    head.append(face, name, score);
+    head.addEventListener('click', () => {
+      if (skyPicked) placeSky(skyPicked, rating, true);
+    });
+
+    const list = document.createElement('ul');
+    list.className = 'sky-list';
+    if (!kinds.length) {
+      const empty = document.createElement('li');
+      empty.className = 'sky-empty';
+      empty.textContent = L.skyEmpty;
+      list.append(empty);
+    }
+
+    for (const kind of kinds) {
+      const li = document.createElement('li');
+      li.className = 'sky-item' + (skyPicked === kind ? ' picked' : '');
+      li.dataset.kind = kind;
+
+      const grip = document.createElement('span');
+      grip.className = 'sky-grip';
+      grip.textContent = '\u2261';
+      grip.setAttribute('aria-hidden', 'true');
+
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sky-chip';
+      chip.textContent = SKY_ICONS[kind] + '  ' + L.skyKinds[kind];
+      chip.setAttribute('aria-pressed', String(skyPicked === kind));
+      chip.addEventListener('click', () => {
+        skyPicked = skyPicked === kind ? null : kind;
+        buildSkies();
+        focusSky(kind);
+      });
+      chip.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          placeSky(kind, rating + (e.key === 'ArrowUp' ? -1 : 1), true);
+        } else if (e.key === 'Escape' && skyPicked) {
+          skyPicked = null;
+          buildSkies();
+          focusSky(kind);
+        }
+      });
+
+      dragSky(grip, li, kind);
+      li.append(grip, chip);
+      list.append(li);
+    }
+
+    band.append(head, list);
+    host.append(band);
+  });
+}
+
+/* The firsts switch lives on the same card; built with it so a restore or
+   a reset leaves it showing the truth. */
+function paintNovelty() {
+  const box = $('novelty');
+  if (box) box.checked = SETTINGS.novelty !== false;
+  const aur = $('aurora');
+  if (aur) aur.checked = SETTINGS.aurora !== false;
+}
+
+if ($('aurora')) {
+  $('aurora').addEventListener('change', () => {
+    SETTINGS.aurora = $('aurora').checked;
+    saveSettings(SETTINGS);
+    renderPreview();
+  });
+}
+
+if ($('novelty')) {
+  $('novelty').addEventListener('change', () => {
+    SETTINGS.novelty = $('novelty').checked;
+    saveSettings(SETTINGS);
+    renderPreview();
+  });
+}
+
+function focusSky(kind) {
+  const chip = document.querySelector('.sky-item[data-kind="' + kind + '"] .sky-chip');
+  if (chip) chip.focus();
+}
+
+function placeSky(kind, rating, keepFocus) {
+  SETTINGS.sky = moveSky(SETTINGS.sky, kind, rating);
+  skyPicked = null;
+  saveSettings(SETTINGS);
+  buildSkies();
+  renderPreview();
+  if (keepFocus) focusSky(kind);
+}
+
+/* Pointer events cover touch and mouse alike. The grip alone takes the
+   gesture (touch-action: none in the CSS), so swiping anywhere else on
+   the card still scrolls the page. */
+function dragSky(grip, li, kind) {
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startScroll = window.scrollY;
+    let over = null;
+    li.classList.add('dragging');
+
+    const move = (ev) => {
+      li.style.transform = 'translateY(' + (ev.clientY - startY + window.scrollY - startScroll) + 'px)';
+      // Look through the dragged item for the band underneath it.
+      li.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      li.style.visibility = '';
+      const band = under && under.closest('.sky-band');
+      if (band !== over) {
+        if (over) over.classList.remove('drop-here');
+        over = band;
+        if (over) over.classList.add('drop-here');
+      }
+      // Near the top or bottom of the screen, keep the page moving.
+      const edge = 70;
+      if (ev.clientY < edge) window.scrollBy(0, -14);
+      else if (ev.clientY > window.innerHeight - edge) window.scrollBy(0, 14);
+    };
+
+    const end = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', end);
+      grip.removeEventListener('pointercancel', end);
+      li.classList.remove('dragging');
+      li.style.transform = '';
+      if (over) {
+        over.classList.remove('drop-here');
+        const rating = Number(over.dataset.rating);
+        if (rating !== tgSkyRating(SETTINGS.sky, kind)) placeSky(kind, rating);
+      }
+    };
+
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
+  });
 }
 
 // Turn 0–2 into words, because "1.3" means nothing on its own.
-function dialWord(v) {
-  const w = T().ui.dialWords;
+function dialWord(v, key) {
+  const w = key === 'twilight' ? T().ui.dialTwilightWords : T().ui.dialWords;
   if (v < 0.15) return w[0];
   if (v < 0.6)  return w[1];
   if (v < 0.9)  return w[2];
@@ -140,7 +348,7 @@ function dialWord(v) {
 
 function paintDial(key) {
   const v = SETTINGS[key];
-  $('val-' + key).textContent = dialWord(v);
+  $('val-' + key).textContent = dialWord(v, key);
   $('dial-' + key).classList.toggle('off', v < 0.15);
 }
 
@@ -276,6 +484,7 @@ function paintNotify() {
     NOTIFY.beforeSunset === 0 ? T().ui.atSunset : T().ui.hBefore(NOTIFY.beforeSunset);
   paintWhen();
   $('n-watch').checked = NOTIFY.watch;
+  $('n-aurora').checked = NOTIFY.aurora;
   $('n-great').value = NOTIFY.greatBar;
   $('n-great-val').textContent = NOTIFY.greatBar;
   $('n-from').value = hhmm(NOTIFY.windowStart, 0);
@@ -283,10 +492,10 @@ function paintNotify() {
   $('n-alarm').checked = NOTIFY.alarm;
 
   $('notify-card').classList.toggle('off-1', !NOTIFY.enabled);
-  document.querySelectorAll('#notify-card .opt')[0]
-    .classList.toggle('collapsed', !NOTIFY.enabled);
-  document.querySelectorAll('#notify-card .opt')[1]
-    .classList.toggle('collapsed', !NOTIFY.watch);
+  // By the switch each option belongs to, not by position: a new option
+  // inserted above would otherwise fold the wrong one.
+  $('n-enabled').closest('.opt').classList.toggle('collapsed', !NOTIFY.enabled);
+  $('n-watch').closest('.opt').classList.toggle('collapsed', !NOTIFY.watch);
 }
 
 function pushNotify() {
@@ -353,6 +562,11 @@ $('n-time').addEventListener('change', () => {
   pushNotify();
 });
 
+$('n-aurora').addEventListener('change', () => {
+  NOTIFY.aurora = $('n-aurora').checked;
+  pushNotify();
+});
+
 $('n-watch').addEventListener('change', () => {
   NOTIFY.watch = $('n-watch').checked;
   pushNotify();
@@ -409,8 +623,7 @@ paintNotify();
    ========================================================== */
 
 function dumpData() {
-  return JSON.stringify(
-    { settings: getSettings(), notify: getNotify(), log: getLog() }, null, 2);
+  return JSON.stringify(backupData(), null, 2);
 }
 
 function refreshBackup() {
@@ -423,7 +636,14 @@ function refreshBackup() {
   $('data-summary').textContent = days
     ? T().ui.dataSummary(days, trips)
     : T().ui.dataSummaryEmpty;
+
+  $('auto-backup').hidden = typeof TouchGrassAndroid === 'undefined';
+  const at = lastExported();
+  $('last-export').textContent = at ? T().ui.lastExported(shortDate(at)) : T().ui.neverExported;
 }
+
+const shortDate = (iso) => new Date(iso)
+  .toLocaleDateString(getLang(), { day: 'numeric', month: 'short', year: 'numeric' });
 
 const backupFilename = () => `touch-grass-${todayKey()}.json`;
 
@@ -436,6 +656,45 @@ const backupFilename = () => `touch-grass-${todayKey()}.json`;
    project to keep alive.
    ---------------------------------------------------------- */
 
+// A file in the downloads folder: the browser's way of saving.
+function downloadBackup(text, name) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    markExported(); refreshBackup();
+    note(T().ui.downloaded);
+  } catch {
+    note(T().ui.saveFailed);
+  }
+}
+
+/* SAVE. In the app the system's save dialog lets you pick where, and
+   the app calls back with the outcome: true saved, false failed, null
+   cancelled. Only a real file counts as a saved copy. */
+window.tgBackupSaved = (ok) => {
+  if (ok === null) return;
+  if (ok) { markExported(); refreshBackup(); note(T().ui.savedFile); }
+  else note(T().ui.saveFailed);
+};
+
+$('btn-save').addEventListener('click', () => {
+  const text = dumpData();
+  const name = backupFilename();
+  try {
+    if (typeof TouchGrassAndroid !== 'undefined' && TouchGrassAndroid.saveBackup) {
+      TouchGrassAndroid.saveBackup(text, name);
+      return;
+    }
+  } catch { /* fall through */ }
+  downloadBackup(text, name);
+});
+
+/* SHARE / EMAIL IT. Where the copy ends up is the other app's business,
+   so opening the share sheet is not counted as a saved copy. */
 $('btn-share').addEventListener('click', async () => {
   const text = dumpData();
   const name = backupFilename();
@@ -461,17 +720,7 @@ $('btn-share').addEventListener('click', async () => {
   }
 
   // 3. anywhere else: save it to disk
-  try {
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    note(T().ui.downloaded);
-  } catch {
-    note(T().ui.shareFailed);
-  }
+  downloadBackup(text, name);
 });
 
 $('btn-toggle-raw').addEventListener('click', () => {
@@ -492,33 +741,53 @@ $('btn-copy').addEventListener('click', async () => {
   }
 });
 
-$('btn-restore').addEventListener('click', () => {
-  let parsed;
-  try {
-    parsed = JSON.parse($('backup').value);
-  } catch {
-    note(T().ui.notValid);
-    return;
-  }
-  if (!parsed || typeof parsed !== 'object') {
-    note(T().ui.notValid);
-    return;
-  }
+/* ----------------------------------------------------------
+   Restoring: from a file, or from pasted text. Either way the
+   panel says what it would do first, and nothing changes until
+   RESTORE is pressed.
+   ---------------------------------------------------------- */
 
-  if (parsed.log && typeof parsed.log === 'object') saveLog(parsed.log);
-  if (parsed.settings && typeof parsed.settings === 'object') saveSettings(parsed.settings);
-  if (parsed.notify && typeof parsed.notify === 'object') {
-    try { localStorage.setItem('touchgrass.notify', JSON.stringify(parsed.notify)); } catch {}
-  }
+let PENDING = null;
 
-  // Re-read through the validators rather than trusting what was pasted.
-  SETTINGS = getSettings();
-  buildDials();
-  barInput.value = SETTINGS.bar;
-  $('bar-val').textContent = SETTINGS.bar;
-  refreshBackup();
-  renderPreview();
-  note(T().ui.restored);
+function offerRestore(text) {
+  let data = null;
+  try { data = JSON.parse(text); } catch { /* not JSON */ }
+  const r = readBackup(data);
+  if (!r) { closeRestore(); note(T().ui.notValid); return; }
+  PENDING = data;
+  $('restore-what').textContent =
+    T().ui.restoreWhat(r.savedAt ? shortDate(r.savedAt) : null, r.days, r.added);
+  $('restore-settings').checked = false;
+  $('restore-settings-row').hidden = !r.hasSettings;
+  $('restore-panel').hidden = false;
+  $('restore-panel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function closeRestore() {
+  PENDING = null;
+  $('restore-panel').hidden = true;
+}
+
+$('btn-file').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';                    // so the same file can be picked again
+  if (!f) return;
+  try { offerRestore(await f.text()); } catch { note(T().ui.notValid); }
+});
+
+$('btn-restore').addEventListener('click', () => offerRestore($('backup').value));
+$('btn-restore-cancel').addEventListener('click', closeRestore);
+
+$('btn-restore-go').addEventListener('click', () => {
+  if (!PENDING) return;
+  const withSettings = $('restore-settings').checked;
+  const r = applyBackup(PENDING, withSettings);
+  closeRestore();
+  if (!r) { note(T().ui.notValid); return; }
+  // Everything on the page was drawn from what may just have changed.
+  if (withSettings) location.reload();
+  else { refreshBackup(); note(T().ui.restoredDays(r.added)); }
 });
 
 let noteTimer = null;
@@ -531,7 +800,7 @@ function note(msg) {
 /* ---------- reset ---------- */
 
 $('btn-reset').addEventListener('click', () => {
-  SETTINGS = Object.assign({}, DEFAULTS);
+  SETTINGS = freshDefaults();
   saveSettings(SETTINGS);
   buildDials();
   barInput.value = SETTINGS.bar;
@@ -548,3 +817,5 @@ paintUnits();
 buildDials();
 refreshBackup();
 loadSample();
+
+renderSources();

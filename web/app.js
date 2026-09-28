@@ -45,8 +45,9 @@ const clockTime = (ms) => new Date(ms)
 const OM_URL = (lat, lon) => 'https://api.open-meteo.com/v1/forecast'
   + `?latitude=${lat}&longitude=${lon}`
   + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
-  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
-  + '&daily=sunset&forecast_days=2&timezone=auto';
+  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day,cloud_cover'
+  // Weeks of daily history for the firsts; hourly stays to the next 48.
+  + '&daily=sunset,precipitation_sum,snowfall_sum,sunshine_duration,apparent_temperature_max&past_days=92&past_hours=1&forecast_hours=48&forecast_days=2&timezone=auto';
 
 const MET_URL = (lat, lon) =>
   `https://api.met.no/weatherapi/locationforecast/2.0/complete?lat=${lat}&lon=${lon}`;
@@ -54,6 +55,19 @@ const MET_URL = (lat, lon) =>
 const SMHI_URL = (lat, lon) =>
   'https://opendata-download-metfcst.smhi.se/api/category/snow1g/version/1'
   + `/geotype/point/lon/${lon.toFixed(4)}/lat/${lat.toFixed(4)}/data.json`;
+
+const KP_URL = 'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json';
+const OVATION_URL = 'https://services.swpc.noaa.gov/json/ovation_aurora_latest.json';
+
+/* OVATION is almost a megabyte and NOAA refreshes it about every half
+   hour, so one copy is kept in memory and reused for that long. */
+let ovationCache = null;
+async function ovationNow() {
+  if (ovationCache && Date.now() - ovationCache.at < 30 * 60 * 1000) return ovationCache.data;
+  const data = await fetchOrNull(OVATION_URL);
+  if (data) ovationCache = { at: Date.now(), data };
+  return data;
+}
 
 /* One source failing must not cost us the other two, so each is
    allowed to come back null. SMHI answers only for the Nordics and
@@ -74,13 +88,19 @@ async function fetchOrNull(url) {
 }
 
 async function getWeather(lat, lon) {
-  const [om, met, smhi] = await Promise.all([
+  const [om, met, smhi, kp] = await Promise.all([
     fetchOrNull(OM_URL(lat, lon)),
     fetchOrNull(MET_URL(lat, lon)),
-    fetchOrNull(SMHI_URL(lat, lon))
+    fetchOrNull(SMHI_URL(lat, lon)),
+    fetchOrNull(KP_URL)
   ]);
 
-  const f = tgForecast({ om, met, smhi });
+  let f = tgForecast({ om, met, smhi, kp });
+  // Only worth the megabyte when it could change the answer for now.
+  if (tgWantsOvation(f)) {
+    const ovation = await ovationNow();
+    if (ovation) f = tgForecast({ om, met, smhi, kp, ovation }) || f;
+  }
   if (!f) throw new Error('No weather service answered');
 
   // hourLabel is the page's business, not the blend's.
@@ -153,31 +173,6 @@ function renderVerdict() {
   renderToday(visits);
   renderChart(data, s);
   pushWidget(v, place);
-
-  const credit = $('fetched-at');
-  if (credit) {
-    credit.textContent = T().ui.updated(clockTime(STATE.stale || STATE.fetchedAt || Date.now()));
-  }
-
-  const blend = $('blend-sources');
-  if (blend) {
-    // Heaviest first. data.sources arrives in whatever order the hours
-    // happened to name the services, which read as "Open-Meteo 25%, MET
-    // Norway 50%, SMHI 25%" — the least important source announced first.
-    const list = tgCreditOrder(data.sources || []);
-    const w = tgWeigh(data.sources || []);
-    blend.textContent = list.length
-      ? `${T().ui.blendedFrom} ` + list
-          .map((k) => T().ui.sourceWeight(creditName(k), Math.round(w[k] * 100)))
-          .join(', ')
-      : '';
-  }
-}
-
-/* The blend's own name for a source, from the one credits list. */
-function creditName(key) {
-  for (const c of TG_CREDITS) if (c.key === key) return c.name;
-  return key;
 }
 
 /* The page has just worked out the verdict; hand it to the widget so it
@@ -305,7 +300,7 @@ function renderWhy(cols, s) {
     const a = document.createElement('span');
     a.className = 'why-amt';
     // A real minus sign, not a hyphen: this is a sum, and it is read aloud.
-    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : String(amount);
+    a.textContent = amount < 0 ? `−${Math.abs(amount)}` : (amount > 0 && cls !== 'total' && name !== L.startedAt ? `+${amount}` : String(amount));
     r.append(n, f, a);
     return r;
   };
@@ -490,6 +485,23 @@ $('btn-undo').addEventListener('click', () => {
 
 $('btn-geo').addEventListener('click', () => askGeo(true));
 
+// SEARCH opens the town box and puts the cursor in it; pressing it again
+// folds it away. Picking a place folds it away too.
+function showSearch(open) {
+  $('search-form').hidden = !open;
+  $('btn-search').setAttribute('aria-expanded', String(open));
+  if (open) {
+    $('search-input').focus();
+    // Once the keyboard has taken its share of the screen, bring the box
+    // back into view above it.
+    const show = () => $('search-form').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', show, { once: true });
+    setTimeout(show, 350);
+  }
+  else { $('results').innerHTML = ''; $('search-input').value = ''; }
+}
+$('btn-search').addEventListener('click', () => showSearch($('search-form').hidden));
+
 $('search-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const q = $('search-input').value.trim();
@@ -510,7 +522,7 @@ $('search-form').addEventListener('submit', async (e) => {
       b.textContent = [r.name, r.admin1, r.country].filter(Boolean).join(', ');
       b.addEventListener('click', () => {
         out.innerHTML = '';
-        $('search-input').value = '';
+        showSearch(false);
         load({ lat: r.latitude, lon: r.longitude, label: r.name, named: true });
       });
       out.append(b);

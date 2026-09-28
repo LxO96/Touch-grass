@@ -69,6 +69,25 @@
     <div id="dials"></div>
   </section>
 
+  <!-- ============ KINDS OF WEATHER ============ -->
+  <section class="card">
+    <h2 data-t="skiesTitle">Kinds of weather</h2>
+    <p class="hint" data-t="skiesBlurb">How much you like each kind of sky.</p>
+    <div id="skies" class="skies"></div>
+
+    <label class="switch">
+      <input type="checkbox" id="aurora">
+      <span data-t="auroraToggle">The aurora is worth a bonus</span>
+    </label>
+    <p class="hint small" data-t="auroraBlurb">When the northern lights are likely: +20.</p>
+
+    <label class="switch">
+      <input type="checkbox" id="novelty">
+      <span data-t="noveltyToggle">Firsts are worth a bonus</span>
+    </label>
+    <p class="hint small" data-t="noveltyBlurb">The first rain after two dry weeks: +15 on those hours.</p>
+  </section>
+
 
   <!-- ============ NOTIFICATIONS ============ -->
   <section class="card" id="notify-card">
@@ -114,6 +133,14 @@
         <p class="hint small" id="n-when">&nbsp;</p>
         <p class="hint small" data-t="oneNudgeADay">One nudge a day, and only if the day is still empty.</p>
       </div>
+    </div>
+
+    <div class="opt">
+      <label class="switch">
+        <input type="checkbox" id="n-aurora">
+        <span data-t="auroraAlert">Tell me when the aurora is likely</span>
+      </label>
+      <p class="hint small" data-t="auroraAlertBlurb">Once a night.</p>
     </div>
 
     <div class="opt">
@@ -193,24 +220,68 @@
     </p>
   </section>
 
+  <!-- ============ SOURCES ============ -->
+  <section class="card sources">
+    <h2 data-t="sources">Where this comes from</h2>
+    <dl class="srclist">
+      <!-- Licence-bound, and it has to be true before any forecast has
+           landed, so it is static rather than filled in from data.sources.
+           The line below only breaks down this forecast's weights. -->
+      <dt data-t="sourceWeather">Weather and forecast</dt>
+      <dd><a href="https://www.met.no/" target="_blank" rel="noopener noreferrer">MET Norway (YR)</a>,
+          <a href="https://www.smhi.se/" target="_blank" rel="noopener noreferrer">SMHI</a>,
+          <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourceSun">Sunrise and sunset</dt>
+      <dd><a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></dd>
+      <dt data-t="sourcePlace">Town search</dt>
+      <dd><a href="https://open-meteo.com/en/docs/geocoding-api" target="_blank" rel="noopener noreferrer">Open-Meteo Geocoding</a></dd>
+    </dl>
+    <p class="hint" id="blend-sources"></p>
+    <p class="hint small" data-t="sourcesBlurb">Free, open weather data. No API key, no account, and your coordinates are sent to nobody else.</p>
+    <p class="hint small" id="fetched-at">&nbsp;</p>
+    <p class="hint small" data-t="sourceLicence">Data licensed CC BY 4.0.</p>
+  </section>
+
   <!-- ============ BACKUP ============ -->
   <section class="card">
     <h2 data-t="yourData">Your data</h2>
     <p class="hint" data-t="dataBlurb">
-      Everything lives in this browser's local storage &mdash; nothing is sent
-      anywhere, and there's no account. Clearing site data wipes your year, so
-      if a long streak starts to mean something, keep a copy of this text.
+      Everything lives on this device &mdash; nothing is sent anywhere, and
+      there's no account. Clearing its data wipes your year, so if a long
+      streak starts to mean something, keep a copy somewhere safe.
     </p>
 
     <p class="datasum" id="data-summary">&nbsp;</p>
+    <p class="hint small" id="auto-backup" data-t="autoBackup" hidden>
+      This phone's own backup keeps a copy too, so a new phone or a reinstall brings it back.
+    </p>
+    <p class="hint small" id="last-export">&nbsp;</p>
 
-    <div class="toggle">
-      <button type="button" class="btn big-btn" id="btn-share" data-t="share">SHARE / EMAIL IT</button>
-      <button type="button" class="btn" id="btn-copy" data-t="copy">COPY</button>
+    <div class="toggle wrap">
+      <button type="button" class="btn big-btn" id="btn-save" data-t="saveFile">SAVE</button>
+      <button type="button" class="btn" id="btn-share" data-t="share">SHARE / EMAIL IT</button>
+      <button type="button" class="btn" id="btn-file" data-t="restoreFile">RESTORE FROM FILE</button>
+      <input type="file" id="file-input" accept=".json,application/json,text/plain" hidden>
     </div>
     <p class="hint small" data-t="dataAdvice">
-      Send it to yourself, or save it to Drive or Files. Any copy will restore.
+      Save it to Files or Drive, or send it to yourself. Any copy will restore.
     </p>
+
+    <!-- What a restore would do, before it does it. -->
+    <div id="restore-panel" class="restore-panel" hidden>
+      <p id="restore-what">&nbsp;</p>
+      <p class="hint small" data-t="restoreMerge">
+        Days are merged: each keeps whichever count is higher, so nothing logged here is lost.
+      </p>
+      <label class="switch" id="restore-settings-row">
+        <input type="checkbox" id="restore-settings">
+        <span data-t="restoreSettings">Also bring back its settings, reminders and place</span>
+      </label>
+      <div class="toggle">
+        <button type="button" class="btn big-btn" id="btn-restore-go" data-t="restoreGo">RESTORE</button>
+        <button type="button" class="btn" id="btn-restore-cancel" data-t="cancel">CANCEL</button>
+      </div>
+    </div>
 
     <p class="hint small">
       <button type="button" class="linkbtn" id="btn-toggle-raw" data-t="showTheData">Show the raw text</button>
@@ -219,6 +290,7 @@
     <div id="raw-wrap" hidden>
       <textarea id="backup" class="backup" spellcheck="false" aria-label="Your saved data"></textarea>
       <div class="toggle">
+        <button type="button" class="btn" id="btn-copy" data-t="copy">COPY</button>
         <button type="button" class="btn" id="btn-restore" data-t="restore">RESTORE FROM TEXT</button>
       </div>
     </div>
@@ -242,6 +314,7 @@
 </div>
 
 <script src="scoring.js"></script>
+<script src="blend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
 <script src="settings.js"></script>

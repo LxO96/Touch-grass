@@ -26,6 +26,10 @@ const DEFAULTS = {
   heat: 1,    // everything above comfortable
   wind: 1,    // gusts
   dark: 1,    // darkness, and the small hours
+  twilight: 1, // dusk and dawn: 0 just dark, 1 no dark penalty, 2 a bonus
+  sky: Object.assign({}, TG_SKY_DEFAULTS),  // 0 love it .. 4 hate it, per kind
+  novelty: true,  // firsts earn a bonus
+  aurora: true,   // a likely aurora earns a bonus
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -40,7 +44,10 @@ const DIALS = [
   { key: 'wind', label: 'Wind', low: "Doesn't bother me",
     high: 'Hate the wind', blurb: 'How much a stiff breeze puts you off.' },
   { key: 'dark', label: 'Darkness', low: 'Happy in the dark',
-    high: 'Daylight only', blurb: 'How much darkness — and 3am especially — counts against.' }
+    high: 'Daylight only', blurb: 'How much darkness — and 3am especially — counts against.' },
+  // The one dial that runs the other way: right means you like it more.
+  { key: 'twilight', label: 'Dusk & dawn', low: 'Just more dark',
+    high: 'The best light', blurb: 'The half-light hour after sunset and before sunrise.' }
 ];
 
 function getSettings() {
@@ -53,8 +60,48 @@ function getSettings() {
     // Keep whatever is stored inside sane bounds.
     for (const d of DIALS) s[d.key] = clamp(s[d.key], 0, 2);
     s.bar = clamp(s.bar, 25, 90);
+    // Each kind of weather keeps a valid stored rating or its default —
+    // tgSkyRating is the one place that decides what "valid" means.
+    s.sky = {};
+    for (const k of TG_SKY_ORDER) s.sky[k] = tgSkyRating(raw.sky, k);
+    s.novelty = raw.novelty !== false;
+    s.aurora = raw.aurora !== false;
     return s;
-  } catch { return Object.assign({}, DEFAULTS); }
+  } catch { return freshDefaults(); }
+}
+
+/* DEFAULTS holds an object (sky); a shallow copy would let a later edit
+   write through into the defaults themselves. */
+function freshDefaults() {
+  return Object.assign({}, DEFAULTS, { sky: Object.assign({}, DEFAULTS.sky) });
+}
+
+/* ---------- ranking the skies into bands ----------
+
+   The settings card shows five bands, Love it .. Hate it, and each kind
+   of weather sits in one. A band is just a rating, so the card needs only
+   these two: which kinds are in which band, and what moving one does. */
+
+const SKY_ICONS = {
+  clear: '☀️', mostlyClear: '🌤️', partly: '⛅', overcast: '☁️', fog: '🌫️',
+  drizzle: '🌦️', rain: '🌧️', snow: '🌨️', freezing: '🧊'
+};
+
+const SKY_BAND_FACES = ['😍', '🙂', '😐', '😕', '😖'];
+
+// Five lists of kinds, one per rating, each in the usual order.
+function skyBands(sky) {
+  const bands = [[], [], [], [], []];
+  for (const k of TG_SKY_ORDER) bands[tgSkyRating(sky, k)].push(k);
+  return bands;
+}
+
+// A new ratings object with `kind` in band `rating`, clamped to the ends.
+function moveSky(sky, kind, rating) {
+  const out = Object.assign({}, sky);
+  if (TG_SKY_ORDER.indexOf(kind) < 0) return out;
+  out[kind] = clamp(Math.round(rating), 0, 4);
+  return out;
 }
 
 function saveSettings(s) {
@@ -156,6 +203,11 @@ function applyStatic(root) {
     if (typeof v === 'string') el.textContent = v;
   });
 
+  scope.querySelectorAll('[data-t-aria]').forEach((el) => {
+    const v = L.ui[el.dataset.tAria];
+    if (typeof v === 'string') el.setAttribute('aria-label', v);
+  });
+
   scope.querySelectorAll('[data-t-ph]').forEach((el) => {
     const v = L.ui[el.dataset.tPh];
     if (typeof v === 'string') el.placeholder = v;
@@ -196,22 +248,46 @@ function validKey(k) {
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
+// Keep only well-formed entries, so a corrupt value can't poison the year.
+function cleanLog(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw)) {
+    if (validKey(k) && Number.isFinite(+v) && +v > 0) {
+      out[k] = Math.min(99, Math.round(+v));
+    }
+  }
+  return out;
+}
+
 function getLog() {
   try {
-    const raw = JSON.parse(localStorage.getItem(LOG_KEY) || '{}');
-    const out = {};
-    // Keep only well-formed entries, so a corrupt value can't poison the year.
-    for (const [k, v] of Object.entries(raw)) {
-      if (validKey(k) && Number.isFinite(+v) && +v > 0) {
-        out[k] = Math.min(99, Math.round(+v));
-      }
-    }
-    return out;
+    return cleanLog(JSON.parse(localStorage.getItem(LOG_KEY) || '{}'));
   } catch { return {}; }
 }
 
 function saveLog(log) {
   try { localStorage.setItem(LOG_KEY, JSON.stringify(log)); } catch {}
+}
+
+/* The most a day can be set to from the year page. The Today button is
+   not capped, so a day can hold more; the popup then lets it come down
+   but never pushes it further up. */
+const TRIPS_MAX = 5;
+
+/* The month `delta` away from year/month, or null if that month has not
+   happened yet — there is nothing to log in the future. */
+function shiftMonth(year, month, delta, now) {
+  const d = new Date(year, month + delta, 1);
+  const n = now || new Date();
+  if (d.getFullYear() > n.getFullYear() ||
+      (d.getFullYear() === n.getFullYear() && d.getMonth() > n.getMonth())) return null;
+  return { year: d.getFullYear(), month: d.getMonth() };
+}
+
+function stepTrips(n, delta) {
+  if (delta > 0) return n >= TRIPS_MAX ? n : n + 1;
+  return Math.max(0, n - 1);
 }
 
 function visitsOn(key) { return getLog()[key] || 0; }
@@ -391,6 +467,7 @@ function getUnits() {
 
 function saveUnits(u) {
   try { localStorage.setItem('touchgrass.units', JSON.stringify(u)); } catch {}
+  syncToAndroid();
 }
 
 const cToF = (c) => c * 9 / 5 + 32;
@@ -428,6 +505,7 @@ const NOTIFY_DEFAULTS = {
   minute: 0,
   beforeSunset: 2,    // hours before sundown, when mode is 'sunset'
   watch: false,       // watch for a genuinely good window
+  aurora: false,      // tell me when the aurora is likely and the sky is clear
   windowStart: 9,     // ...but only between these hours
   windowEnd: 20,
   greatBar: 75,       // what counts as worth interrupting you for
@@ -530,7 +608,20 @@ function factorFact(key, h) {
     case 'wind':
       return fmtWind(tgNum(h.wind, 0), u);
     case 'code':
+    case 'sky':
       return skyName(h.code);
+    case 'firstRain':
+      return h.noveltyDays ? T().ui.dryDays(h.noveltyDays) : '';
+    case 'firstSun':
+      return h.noveltyDays ? T().ui.greyDays(h.noveltyDays) : '';
+    case 'auroraLikely':
+    case 'auroraPossible': {
+      const fact = h.auroraSource === 'oval' ? T().ui.ovalFact(Math.round(h.auroraValue))
+        : typeof h.auroraValue === 'number' ? T().ui.kpFact(Math.round(h.auroraValue * 10) / 10) : '';
+      return h.auroraMoon ? T().ui.brightMoon(fact) : fact;
+    }
+    case 'firstWarm':
+      return fmtTemp(tgNum(h.feels, 16), u);
     // Dark is dark, and 3am is 3am. Neither needs a number.
     default:
       return '';
@@ -619,3 +710,129 @@ function loadPlace() {
   try { return JSON.parse(localStorage.getItem('touchgrass.place') || 'null'); }
   catch { return null; }
 }
+
+
+/* ==========================================================
+   BACKUPS
+
+   One shape for every copy: the file you share, the text you
+   paste, and the copy the app keeps where Android's own backup
+   carries it to a new phone.
+   ========================================================== */
+
+function backupData() {
+  return {
+    app: 'touchgrass', version: 1, savedAt: new Date().toISOString(),
+    log: getLog(), settings: getSettings(), notify: getNotify(),
+    units: getUnits(), lang: getLang(), place: loadPlace()
+  };
+}
+
+/* What a backup would do to this device's year, without doing it. Null
+   when it isn't a backup at all. `added` counts the days the backup has
+   more trips on than this device does. */
+function readBackup(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (!data.log && !data.settings && !data.notify) return null;
+  const log = cleanLog(data.log);
+  const here = getLog();
+  let added = 0;
+  for (const [k, v] of Object.entries(log)) if (v > (here[k] || 0)) added++;
+  const when = typeof data.savedAt === 'string' && !isNaN(Date.parse(data.savedAt))
+    ? data.savedAt : null;
+  return { days: Object.keys(log).length, added: added, savedAt: when,
+           hasSettings: !!(data.settings || data.notify || data.units || data.place) };
+}
+
+/* Put a backup back. The log is merged, never replaced: each day keeps
+   whichever count is higher, so restoring an old copy cannot erase what
+   has been logged since. Settings, notifications, units, language and
+   place are replaced only when asked, and each is read back through the
+   same validators as always, so nothing pasted is trusted as is. */
+function applyBackup(data, withSettings) {
+  const r = readBackup(data);
+  if (!r) return null;
+  const log = getLog();
+  for (const [k, v] of Object.entries(cleanLog(data.log))) {
+    if (v > (log[k] || 0)) log[k] = v;
+  }
+  saveLog(log);
+
+  if (withSettings) {
+    const put = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} };
+    if (data.settings && typeof data.settings === 'object') put('touchgrass.settings', data.settings);
+    if (data.notify && typeof data.notify === 'object') put('touchgrass.notify', data.notify);
+    if (data.units && typeof data.units === 'object') put('touchgrass.units', data.units);
+    const p = data.place;
+    if (p && typeof p === 'object' && Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+      put('touchgrass.place', p);
+    }
+    if (typeof data.lang === 'string' && TEXT[data.lang]) {
+      try { localStorage.setItem('touchgrass.lang', data.lang); } catch {}
+      LANG_CACHE = null;
+    }
+  }
+  syncToAndroid();
+  return r;
+}
+
+/* The app keeps a copy of everything the page tells it, in the part of
+   its storage that Android backs up. After a reinstall or on a new phone
+   that copy comes back but this page's own storage does not, so on a
+   page that has nothing yet, the copy is put back — log and settings
+   both, since there is nothing here for it to overwrite. The language
+   alone doesn't count as something: the page writes its guess on first
+   run. */
+const BACKUP_KEYS = ['touchgrass.log', 'touchgrass.settings', 'touchgrass.notify', 'touchgrass.place'];
+
+function restoreFromApp(bridge) {
+  try {
+    if (!bridge || typeof bridge.savedState !== 'function') return false;
+    for (const k of BACKUP_KEYS) if (localStorage.getItem(k) !== null) return false;
+    const saved = bridge.savedState();
+    if (!saved) return false;
+    return !!applyBackup(JSON.parse(saved), true);
+  } catch { return false; }
+}
+
+// When a copy was last shared or copied out, so the page can say so.
+function markExported() {
+  try { localStorage.setItem('touchgrass.exportedAt', new Date().toISOString()); } catch {}
+}
+function lastExported() {
+  try {
+    const v = localStorage.getItem('touchgrass.exportedAt');
+    return v && !isNaN(Date.parse(v)) ? v : null;
+  } catch { return null; }
+}
+
+if (typeof TouchGrassAndroid !== 'undefined') restoreFromApp(TouchGrassAndroid);
+
+
+/* ==========================================================
+   THE HEADER
+
+   The big title fades as you scroll down and the tabs stay pinned
+   at the top, so the pages keep their name at rest and give the
+   screen back once you are reading. Pages only — the test runner
+   has no real document.
+   ========================================================== */
+
+(function collapseHeader() {
+  if (typeof window === 'undefined' || typeof document.querySelector !== 'function') return;
+  const title = document.querySelector('h1');
+  if (!title) return;
+  let queued = false;
+  const paint = () => {
+    queued = false;
+    const h = title.offsetHeight || 1;
+    const y = window.scrollY || 0;
+    title.style.opacity = String(Math.max(0, 1 - y / (h * 0.8)));
+    // Solid just before the tabs pin, never after content has reached them.
+    document.body.classList.toggle('scrolled', y > h * 0.75);
+  };
+  window.addEventListener('scroll', () => {
+    if (!queued) { queued = true; requestAnimationFrame(paint); }
+  }, { passive: true });
+  paint();
+})();

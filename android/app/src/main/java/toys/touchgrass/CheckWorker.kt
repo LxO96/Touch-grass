@@ -2,6 +2,9 @@ package toys.touchgrass
 
 import android.content.Context
 import androidx.work.CoroutineWorker
+import androidx.work.ForegroundInfo
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import androidx.work.WorkerParameters
 import java.util.Calendar
 import java.util.Locale
@@ -25,6 +28,12 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
     companion object {
         const val FORCE = "force"
 
+        /* The nudge alarm's check and the periodic one can be released in
+           the same Doze window. Both would read "not nudged yet" before
+           either wrote it, and both would notify. One at a time, and the
+           second sees what the first recorded. */
+        private val oneAtATime = Mutex()
+
         /**
          * Whether `h` still falls today.
          *
@@ -37,6 +46,34 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
          */
         internal fun stillToday(h: Scoring.Hour, nowHour: Int) =
             nowHour + h.hoursFromNow < 24
+
+        /** The aurora alert's wording, from the hour that earned it. */
+        internal fun auroraText(h: Scoring.Hour): String {
+            val detail = h.auroraValue?.let { v ->
+                if (h.auroraSource == "oval") "${v.toInt()}% chance nearby"
+                else "Kp ${"%.1f".format(java.util.Locale.US, v).removeSuffix(".0")}"
+            }
+            return "The sky is dark and clear enough" +
+                (detail?.let { " ($it)" } ?: "") + ". Look north."
+        }
+
+        /** What the aurora alert should do: say so now, and/or wake later. */
+        internal data class AuroraPlan(val now: Scoring.Hour?, val wakeAt: Long?)
+
+        /**
+         * Worked out against the real clock, not the forecast's own "now": a
+         * forecast reused from the cache can be most of an hour old, and its
+         * first row is then the previous hour. Each row's start is its
+         * offset from when the forecast was fetched.
+         */
+        internal fun auroraPlan(f: Weather.Forecast, nowMs: Long, zone: java.util.TimeZone): AuroraPlan {
+            val rows = listOf(f.now) + f.ahead
+            val current = NudgeTiming.hourStart(nowMs, 0, zone)
+            fun start(h: Scoring.Hour) = NudgeTiming.hourStart(f.fetchedAt, h.hoursFromNow, zone)
+            val now = rows.firstOrNull { start(it) == current && it.aurora == "likely" }
+            val next = rows.firstOrNull { start(it) > current && it.aurora == "likely" }
+            return AuroraPlan(now, next?.let { start(it) })
+        }
 
         /**
          * The nudge's wording, with the dials and the clock passed in so it
@@ -69,7 +106,18 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         }
     }
 
-    override suspend fun doWork(): Result {
+    override suspend fun getForegroundInfo() =
+        ForegroundInfo(Notifier.ID_CHECKING, Notifier.checking(applicationContext))
+
+    // Whatever this run decided, point the nudge alarm at the next one owed.
+    override suspend fun doWork(): Result =
+        try {
+            oneAtATime.withLock { check() }
+        } finally {
+            NudgeAlarm.arm(applicationContext)
+        }
+
+    private suspend fun check(): Result {
         val c = applicationContext
         Scoring.init {
             Scoring.join(
@@ -79,10 +127,7 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         }
 
         val cal = Calendar.getInstance()
-        val today = String.format(
-            Locale.US, "%d-%02d-%02d",
-            cal.get(Calendar.YEAR), cal.get(Calendar.MONTH) + 1, cal.get(Calendar.DAY_OF_MONTH)
-        )
+        val today = NudgeTiming.dayKey(cal.timeInMillis, cal.timeZone)
         val nowHour = cal.get(Calendar.HOUR_OF_DAY)
         val nowMinutes = nowHour * 60 + cal.get(Calendar.MINUTE)
 
@@ -98,9 +143,13 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         val visits = Prefs.visitsOn(c, today)
         val wantNudge = Prefs.remindersOn(c) && !Prefs.alreadyNudged(c, today) && visits == 0
         val wantWatch = Prefs.watchOn(c) && !Prefs.alreadyAlerted(c, today) && visits == 0
+        val zone = cal.timeZone
+        val night = NudgeTiming.auroraNight(System.currentTimeMillis(), zone)
+        val wantAurora = Prefs.auroraAlertOn(c) && Prefs.hasPlace(c) &&
+            !Prefs.alreadyAuroraAlerted(c, night)
         val widgetLive = Widget.hasAny(c)
 
-        if (!wantNudge && !wantWatch && !widgetLive) return Result.success()
+        if (!wantNudge && !wantWatch && !widgetLive && !wantAurora) return Result.success()
 
         // The alert never fires outside your waking hours. Checked before
         // anything is fetched — this is what stops an alarm at 3am.
@@ -109,7 +158,7 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         // One fetch serves both jobs: the nudge needs it for its wording
         // (and for sunset, if timing is set that way), the alert for the
         // forecast itself.
-        val forecast = if (Prefs.hasPlace(c) && (wantNudge || watchNow || widgetLive)) {
+        val forecast = if (Prefs.hasPlace(c) && (wantNudge || watchNow || widgetLive || wantAurora)) {
             Weather.fetch(Prefs.lat(c), Prefs.lon(c)) ?: return Result.retry()
         } else {
             null
@@ -121,12 +170,36 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
         if (wantNudge) {
             val due = Prefs.reminderDueMinutes(c, forecast?.sunsetMinutes)
             if (nowMinutes >= due) {
-                Notifier.nudge(c, nudgeText(c, forecast, nowHour))
+                // On screen now, or opened since it came due: the app has
+                // already said it. Count it as done rather than repeat it.
+                val nowMs = System.currentTimeMillis()
+                val dueAt = NudgeTiming.dueAt(nowMs, due, 0, java.util.TimeZone.getDefault())
+                val answered = AppState.inForeground ||
+                    NudgeTiming.nudgeAnswered(Prefs.lastOpened(c), dueAt, nowMs)
+                if (!answered) Notifier.nudge(c, nudgeText(c, forecast, nowHour))
                 Prefs.markNudged(c, today)
             }
         }
 
-        if (watchNow && forecast != null) checkForAWindow(c, today, nowHour, forecast)
+        // Someone looking at the verdict, or who just was, does not need a
+        // notification repeating it.
+        val quiet = AppState.inForeground ||
+            NudgeTiming.alertQuiet(Prefs.lastOpened(c), System.currentTimeMillis())
+        if (watchNow && forecast != null && !quiet) checkForAWindow(c, today, nowHour, forecast)
+
+        // The aurora, once a night: now if it is likely now, otherwise an
+        // alarm for the first likely hour still to come tonight.
+        // No waking-hours window here, unlike the good-window alert: an
+        // aurora is a night-time thing, and this alert is opt-in and says so.
+        if (wantAurora && forecast != null) {
+            val plan = auroraPlan(forecast, System.currentTimeMillis(), zone)
+            if (plan.now != null) {
+                if (!AppState.inForeground) Notifier.aurora(c, auroraText(plan.now))
+                Prefs.markAuroraAlerted(c, night)
+            } else if (plan.wakeAt != null) {
+                AuroraAlarm.arm(c, plan.wakeAt)
+            }
+        }
 
         return Result.success()
     }
