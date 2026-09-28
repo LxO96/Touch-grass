@@ -210,7 +210,9 @@ en: {
     dialDarkBlurb: 'How much darkness — and 3am especially — counts against.',
     dialTwilightBlurb: 'The half-light hour after sunset and before sunrise. This one runs the other way: slide right if you love it.',
     skiesTitle: 'Kinds of weather',
-    skiesBlurb: "How much you like each kind of sky, on top of getting wet — the rain dial still handles that. Thunder isn't here: it always counts, for safety.",
+    skiesBlurb: "Drag each kind of weather into a band — or tap one, then tap the band it belongs in. This is how the sky feels; getting wet still counts separately. Thunder isn't here: it always counts, for safety.",
+    skyEmpty: 'Nothing here yet',
+    skyPickHint: (name) => `Now tap the band for ${name}.`,
     skyKinds: {
       clear: 'Clear sky', mostlyClear: 'Mostly clear', partly: 'Partly cloudy',
       overcast: 'Overcast', fog: 'Fog', drizzle: 'Drizzle',
@@ -530,7 +532,9 @@ sv: {
     dialDarkBlurb: 'Hur mycket mörker — och särskilt kl 3 — drar ner.',
     dialTwilightBlurb: 'Halvljustimmen efter solnedgången och före soluppgången. Den här går åt andra hållet: dra åt höger om du älskar den.',
     skiesTitle: 'Olika sorters väder',
-    skiesBlurb: 'Hur mycket du gillar varje sorts himmel, utöver att bli blöt — det sköter regnratten fortfarande. Åska finns inte här: den räknas alltid, för säkerhetens skull.',
+    skiesBlurb: 'Dra varje sorts väder till ett band — eller tryck på en och sedan på bandet den hör hemma i. Det här är hur himlen känns; att bli blöt räknas fortfarande för sig. Åska finns inte här: den räknas alltid, för säkerhetens skull.',
+    skyEmpty: 'Inget här än',
+    skyPickHint: (name) => `Tryck nu på bandet för ${name}.`,
     skyKinds: {
       clear: 'Klart', mostlyClear: 'Mest klart', partly: 'Halvklart',
       overcast: 'Mulet', fog: 'Dimma', drizzle: 'Duggregn',

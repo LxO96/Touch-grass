@@ -599,28 +599,37 @@ footer {
 
 .dial { margin: 20px 0 24px; }
 
-/* ---------- kinds of weather ---------- */
+/* ---------- ranking the skies ---------- */
 
-.sky-row { margin: 14px 0 18px; }
-.sky-name { display: block; font-size: 24px; margin-bottom: 6px; }
-/* Five equal buttons on one line, so the scale reads left to right. */
-.sky-opts { display: flex; gap: 4px; }
-.sky-opt {
-  flex: 1 1 0;
-  min-width: 0;
-  font: inherit;
-  font-size: 15px;
-  line-height: 1.1;
-  padding: 6px 2px;
-  text-align: center;
-  background: #fff;
-  color: var(--ink);
-  border: 2px solid var(--ink);
-  border-radius: 0;
-  cursor: pointer;
+.sky-hint { min-height: 1.2em; margin: 4px 0 0; }
+.sky-band { margin: 10px -6px; padding: 2px 6px 6px; border: 2px dashed transparent; }
+.sky-band.drop-here { border-color: var(--ink); background: rgba(48, 62, 78, .06); }
+.sky-band-head {
+  display: flex; align-items: baseline; gap: 10px; width: 100%;
+  font: inherit; font-size: 22px; color: var(--ink);
+  background: none; border: 0; border-bottom: 3px solid var(--ink);
+  padding: 6px 0 4px; text-align: left; cursor: pointer;
 }
-.sky-opt[aria-checked="true"] { background: var(--ink); color: #fff; }
-.sky-opt:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.sky-band.can-drop .sky-band-head { background: rgba(48, 62, 78, .08); }
+.sky-band-pts { margin-left: auto; opacity: .65; font-variant-numeric: tabular-nums; }
+.sky-list { list-style: none; margin: 6px 0 0; padding: 0; min-height: 44px; }
+.sky-item { display: flex; align-items: center; gap: 4px; margin: 5px 0; }
+.sky-grip {
+  width: 44px; height: 44px; flex: 0 0 44px;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 26px; cursor: grab; user-select: none;
+  touch-action: none;   /* the grip drags; everywhere else still scrolls */
+}
+.sky-chip {
+  flex: 1; font: inherit; font-size: 19px; text-align: left;
+  padding: 8px 12px; background: #fff; color: var(--ink);
+  border: 2px solid var(--ink); border-radius: 0; cursor: pointer;
+}
+.sky-item.picked .sky-chip { background: var(--ink); color: #fff; }
+.sky-chip:focus-visible, .sky-band-head:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+.sky-item.dragging { position: relative; z-index: 5; }
+.sky-item.dragging .sky-chip { box-shadow: 5px 5px 0 var(--ink); }
+.sky-empty { opacity: .5; font-size: 16px; padding: 10px 0 10px 48px; }
 
 .dial-head {
   display: flex;

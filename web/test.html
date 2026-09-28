@@ -1813,6 +1813,45 @@ check('every kind of weather and every rating is named in both languages', (() =
   return ok;
 })(), true);
 
+/* ================= ranking the skies into bands ================= */
+
+// The settings card is a list of five bands — Love it .. Hate it — that
+// each kind of weather is dragged into. The bands are just the ratings,
+// so these pin the two small pieces of logic the card is built on.
+
+check('the default skies fall into the bands they were rated into', (() => {
+  return skyBands(DEFAULTS.sky).map((b) => b.join('+')).join(' | ');
+})(), 'clear+mostlyClear | partly+snow | overcast+fog+drizzle | rain | freezing');
+
+check('a band can be empty', (() => {
+  const sky = moveSky(DEFAULTS.sky, 'rain', 2);
+  return skyBands(sky)[3].length;
+})(), 0);
+
+check('moving a sky puts it in its new band', (() => {
+  const sky = moveSky(DEFAULTS.sky, 'overcast', 0);
+  return skyBands(sky)[0].join('+');
+})(), 'clear+mostlyClear+overcast');
+
+check('moving a sky does not touch the one it was given', (() => {
+  const before = Object.assign({}, DEFAULTS.sky);
+  moveSky(DEFAULTS.sky, 'fog', 4);
+  return JSON.stringify(DEFAULTS.sky) === JSON.stringify(before);
+})(), true);
+
+check('a move past either end stops at the end band', (() => {
+  return [moveSky(DEFAULTS.sky, 'clear', -1).clear,
+          moveSky(DEFAULTS.sky, 'freezing', 7).freezing].join(',');
+})(), '0,4');
+
+check('an unknown kind of weather is ignored, not added', (() => {
+  return Object.keys(moveSky(DEFAULTS.sky, 'hail', 0)).indexOf('hail');
+})(), -1);
+
+check('every kind of weather has an icon', (() => {
+  return TG_SKY_ORDER.filter((k) => !SKY_ICONS[k]).join(',') || 'all';
+})(), 'all');
+
 /* ================= report ================= */
 
 if (REAL_LANG === null) localStorage.removeItem('touchgrass.lang');

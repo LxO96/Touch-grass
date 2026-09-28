@@ -128,47 +128,160 @@ function buildDials() {
   buildSkies();
 }
 
-/* One row per kind of weather, five choices each. Built with the dials so
-   a language change, a restore or a reset rebuilds both together. */
+/* ---------- ranking the skies ----------
+
+   Five bands, Love it down to Hate it, and each kind of weather sits in
+   one. Drag a kind by its grip into another band; or tap it, then tap the
+   band it belongs in — dragging inside a WebView can be fiddly, and a tap
+   always works. Arrow keys move a focused kind one band up or down. */
+
+let skyPicked = null;   // a kind tapped and waiting for a band
+
 function buildSkies() {
   const host = $('skies');
   if (!host) return;
   host.innerHTML = '';
   const L = T().ui;
 
-  for (const kind of TG_SKY_ORDER) {
-    const row = document.createElement('div');
-    row.className = 'sky-row';
+  const hint = document.createElement('p');
+  hint.className = 'hint small sky-hint';
+  hint.setAttribute('aria-live', 'polite');
+  hint.textContent = skyPicked ? L.skyPickHint(L.skyKinds[skyPicked]) : '';
+  host.append(hint);
 
+  skyBands(SETTINGS.sky).forEach((kinds, rating) => {
+    const band = document.createElement('section');
+    band.className = 'sky-band' + (skyPicked ? ' can-drop' : '');
+    band.dataset.rating = String(rating);
+
+    const head = document.createElement('button');
+    head.type = 'button';
+    head.className = 'sky-band-head';
+    const face = document.createElement('span');
+    face.textContent = SKY_BAND_FACES[rating];
     const name = document.createElement('span');
-    name.className = 'sky-name';
-    name.id = 'sky-name-' + kind;
-    name.textContent = L.skyKinds[kind];
-
-    const opts = document.createElement('div');
-    opts.className = 'sky-opts';
-    opts.setAttribute('role', 'radiogroup');
-    opts.setAttribute('aria-labelledby', name.id);
-
-    L.skyRatings.forEach((word, rating) => {
-      const b = document.createElement('button');
-      b.type = 'button';
-      b.className = 'sky-opt';
-      b.textContent = word;
-      b.setAttribute('role', 'radio');
-      b.setAttribute('aria-checked', String(SETTINGS.sky[kind] === rating));
-      b.addEventListener('click', () => {
-        SETTINGS.sky = Object.assign({}, SETTINGS.sky, { [kind]: rating });
-        saveSettings(SETTINGS);
-        buildSkies();
-        renderPreview();
-      });
-      opts.append(b);
+    name.className = 'sky-band-name';
+    name.textContent = L.skyRatings[rating];
+    const pts = TG_SKY_POINTS[rating];
+    const score = document.createElement('span');
+    score.className = 'sky-band-pts';
+    score.textContent = pts ? '\u2212' + pts : '0';
+    head.append(face, name, score);
+    head.addEventListener('click', () => {
+      if (skyPicked) placeSky(skyPicked, rating, true);
     });
 
-    row.append(name, opts);
-    host.append(row);
-  }
+    const list = document.createElement('ul');
+    list.className = 'sky-list';
+    if (!kinds.length) {
+      const empty = document.createElement('li');
+      empty.className = 'sky-empty';
+      empty.textContent = L.skyEmpty;
+      list.append(empty);
+    }
+
+    for (const kind of kinds) {
+      const li = document.createElement('li');
+      li.className = 'sky-item' + (skyPicked === kind ? ' picked' : '');
+      li.dataset.kind = kind;
+
+      const grip = document.createElement('span');
+      grip.className = 'sky-grip';
+      grip.textContent = '\u2261';
+      grip.setAttribute('aria-hidden', 'true');
+
+      const chip = document.createElement('button');
+      chip.type = 'button';
+      chip.className = 'sky-chip';
+      chip.textContent = SKY_ICONS[kind] + '  ' + L.skyKinds[kind];
+      chip.setAttribute('aria-pressed', String(skyPicked === kind));
+      chip.addEventListener('click', () => {
+        skyPicked = skyPicked === kind ? null : kind;
+        buildSkies();
+        focusSky(kind);
+      });
+      chip.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+          e.preventDefault();
+          placeSky(kind, rating + (e.key === 'ArrowUp' ? -1 : 1), true);
+        } else if (e.key === 'Escape' && skyPicked) {
+          skyPicked = null;
+          buildSkies();
+          focusSky(kind);
+        }
+      });
+
+      dragSky(grip, li, kind);
+      li.append(grip, chip);
+      list.append(li);
+    }
+
+    band.append(head, list);
+    host.append(band);
+  });
+}
+
+function focusSky(kind) {
+  const chip = document.querySelector('.sky-item[data-kind="' + kind + '"] .sky-chip');
+  if (chip) chip.focus();
+}
+
+function placeSky(kind, rating, keepFocus) {
+  SETTINGS.sky = moveSky(SETTINGS.sky, kind, rating);
+  skyPicked = null;
+  saveSettings(SETTINGS);
+  buildSkies();
+  renderPreview();
+  if (keepFocus) focusSky(kind);
+}
+
+/* Pointer events cover touch and mouse alike. The grip alone takes the
+   gesture (touch-action: none in the CSS), so swiping anywhere else on
+   the card still scrolls the page. */
+function dragSky(grip, li, kind) {
+  grip.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    grip.setPointerCapture(e.pointerId);
+    const startY = e.clientY;
+    const startScroll = window.scrollY;
+    let over = null;
+    li.classList.add('dragging');
+
+    const move = (ev) => {
+      li.style.transform = 'translateY(' + (ev.clientY - startY + window.scrollY - startScroll) + 'px)';
+      // Look through the dragged item for the band underneath it.
+      li.style.visibility = 'hidden';
+      const under = document.elementFromPoint(ev.clientX, ev.clientY);
+      li.style.visibility = '';
+      const band = under && under.closest('.sky-band');
+      if (band !== over) {
+        if (over) over.classList.remove('drop-here');
+        over = band;
+        if (over) over.classList.add('drop-here');
+      }
+      // Near the top or bottom of the screen, keep the page moving.
+      const edge = 70;
+      if (ev.clientY < edge) window.scrollBy(0, -14);
+      else if (ev.clientY > window.innerHeight - edge) window.scrollBy(0, 14);
+    };
+
+    const end = () => {
+      grip.removeEventListener('pointermove', move);
+      grip.removeEventListener('pointerup', end);
+      grip.removeEventListener('pointercancel', end);
+      li.classList.remove('dragging');
+      li.style.transform = '';
+      if (over) {
+        over.classList.remove('drop-here');
+        const rating = Number(over.dataset.rating);
+        if (rating !== tgSkyRating(SETTINGS.sky, kind)) placeSky(kind, rating);
+      }
+    };
+
+    grip.addEventListener('pointermove', move);
+    grip.addEventListener('pointerup', end);
+    grip.addEventListener('pointercancel', end);
+  });
 }
 
 // Turn 0–2 into words, because "1.3" means nothing on its own.

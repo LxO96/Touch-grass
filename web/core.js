@@ -72,6 +72,34 @@ function freshDefaults() {
   return Object.assign({}, DEFAULTS, { sky: Object.assign({}, DEFAULTS.sky) });
 }
 
+/* ---------- ranking the skies into bands ----------
+
+   The settings card shows five bands, Love it .. Hate it, and each kind
+   of weather sits in one. A band is just a rating, so the card needs only
+   these two: which kinds are in which band, and what moving one does. */
+
+const SKY_ICONS = {
+  clear: '☀️', mostlyClear: '🌤️', partly: '⛅', overcast: '☁️', fog: '🌫️',
+  drizzle: '🌦️', rain: '🌧️', snow: '🌨️', freezing: '🧊'
+};
+
+const SKY_BAND_FACES = ['😍', '🙂', '😐', '😕', '😖'];
+
+// Five lists of kinds, one per rating, each in the usual order.
+function skyBands(sky) {
+  const bands = [[], [], [], [], []];
+  for (const k of TG_SKY_ORDER) bands[tgSkyRating(sky, k)].push(k);
+  return bands;
+}
+
+// A new ratings object with `kind` in band `rating`, clamped to the ends.
+function moveSky(sky, kind, rating) {
+  const out = Object.assign({}, sky);
+  if (TG_SKY_ORDER.indexOf(kind) < 0) return out;
+  out[kind] = clamp(Math.round(rating), 0, 4);
+  return out;
+}
+
 function saveSettings(s) {
   try { localStorage.setItem('touchgrass.settings', JSON.stringify(s)); } catch {}
   syncToAndroid();
