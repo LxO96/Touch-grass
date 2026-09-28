@@ -216,7 +216,11 @@ class MainActivity : AppCompatActivity() {
             val bars = insets.getInsets(
                 WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
             )
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            // Edge-to-edge also means the keyboard no longer shrinks the
+            // window by itself: leave room for it, or a focused field ends
+            // up underneath it.
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(bars.left, bars.top, bars.right, maxOf(bars.bottom, ime.bottom))
             WindowInsetsCompat.CONSUMED
         }
 

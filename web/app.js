@@ -471,7 +471,14 @@ $('btn-geo').addEventListener('click', () => askGeo(true));
 function showSearch(open) {
   $('search-form').hidden = !open;
   $('btn-search').setAttribute('aria-expanded', String(open));
-  if (open) $('search-input').focus();
+  if (open) {
+    $('search-input').focus();
+    // Once the keyboard has taken its share of the screen, bring the box
+    // back into view above it.
+    const show = () => $('search-form').scrollIntoView({ block: 'center', behavior: 'smooth' });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', show, { once: true });
+    setTimeout(show, 350);
+  }
   else { $('results').innerHTML = ''; $('search-input').value = ''; }
 }
 $('btn-search').addEventListener('click', () => showSearch($('search-form').hidden));
