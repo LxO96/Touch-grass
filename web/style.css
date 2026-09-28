@@ -519,12 +519,12 @@ h1 { transition: opacity 80ms linear; }
 .cal {
   display: grid;
   grid-template-columns: 2em repeat(12, var(--yc));
-  gap: 4px;
+  gap: 2px;
   justify-content: center;
   /* The day numbers sit in a column on the left; the same width of empty
      space on the right puts the boxes themselves in the middle. */
-  padding-right: calc(2em + 4px);
-  --yc: 17px;
+  padding-right: calc(2em + 2px);
+  --yc: 14px;
 }
 .yc-month { font-size: 12px; text-align: center; opacity: 0.75; overflow: visible; white-space: nowrap; }
 .yc-day { font-size: 12px; text-align: right; padding-right: 4px; opacity: 0.6; line-height: var(--yc); }

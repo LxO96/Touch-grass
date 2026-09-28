@@ -124,7 +124,11 @@ function renderYear(log, L) {
   for (let m = 0; m < 12; m++) {
     const h = document.createElement('span');
     h.className = 'yc-month';
-    h.textContent = L.months[m];
+    // Initials: three letters would overlap at this size. The full name
+    // is still there for a hover or a screen reader.
+    h.textContent = L.months[m].charAt(0);
+    h.title = L.monthsLong[m];
+    h.setAttribute('aria-label', L.monthsLong[m]);
     cal.append(h);
   }
 
