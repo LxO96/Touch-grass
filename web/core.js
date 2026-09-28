@@ -248,17 +248,21 @@ function validKey(k) {
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === d;
 }
 
+// Keep only well-formed entries, so a corrupt value can't poison the year.
+function cleanLog(raw) {
+  const out = {};
+  if (!raw || typeof raw !== 'object') return out;
+  for (const [k, v] of Object.entries(raw)) {
+    if (validKey(k) && Number.isFinite(+v) && +v > 0) {
+      out[k] = Math.min(99, Math.round(+v));
+    }
+  }
+  return out;
+}
+
 function getLog() {
   try {
-    const raw = JSON.parse(localStorage.getItem(LOG_KEY) || '{}');
-    const out = {};
-    // Keep only well-formed entries, so a corrupt value can't poison the year.
-    for (const [k, v] of Object.entries(raw)) {
-      if (validKey(k) && Number.isFinite(+v) && +v > 0) {
-        out[k] = Math.min(99, Math.round(+v));
-      }
-    }
-    return out;
+    return cleanLog(JSON.parse(localStorage.getItem(LOG_KEY) || '{}'));
   } catch { return {}; }
 }
 
@@ -463,6 +467,7 @@ function getUnits() {
 
 function saveUnits(u) {
   try { localStorage.setItem('touchgrass.units', JSON.stringify(u)); } catch {}
+  syncToAndroid();
 }
 
 const cToF = (c) => c * 9 / 5 + 32;
@@ -610,9 +615,11 @@ function factorFact(key, h) {
     case 'firstSun':
       return h.noveltyDays ? T().ui.greyDays(h.noveltyDays) : '';
     case 'auroraLikely':
-    case 'auroraPossible':
-      if (h.auroraSource === 'oval') return T().ui.ovalFact(Math.round(h.auroraValue));
-      return typeof h.auroraValue === 'number' ? T().ui.kpFact(Math.round(h.auroraValue * 10) / 10) : '';
+    case 'auroraPossible': {
+      const fact = h.auroraSource === 'oval' ? T().ui.ovalFact(Math.round(h.auroraValue))
+        : typeof h.auroraValue === 'number' ? T().ui.kpFact(Math.round(h.auroraValue * 10) / 10) : '';
+      return h.auroraMoon ? T().ui.brightMoon(fact) : fact;
+    }
     case 'firstWarm':
       return fmtTemp(tgNum(h.feels, 16), u);
     // Dark is dark, and 3am is 3am. Neither needs a number.
@@ -703,6 +710,103 @@ function loadPlace() {
   try { return JSON.parse(localStorage.getItem('touchgrass.place') || 'null'); }
   catch { return null; }
 }
+
+
+/* ==========================================================
+   BACKUPS
+
+   One shape for every copy: the file you share, the text you
+   paste, and the copy the app keeps where Android's own backup
+   carries it to a new phone.
+   ========================================================== */
+
+function backupData() {
+  return {
+    app: 'touchgrass', version: 1, savedAt: new Date().toISOString(),
+    log: getLog(), settings: getSettings(), notify: getNotify(),
+    units: getUnits(), lang: getLang(), place: loadPlace()
+  };
+}
+
+/* What a backup would do to this device's year, without doing it. Null
+   when it isn't a backup at all. `added` counts the days the backup has
+   more trips on than this device does. */
+function readBackup(data) {
+  if (!data || typeof data !== 'object' || Array.isArray(data)) return null;
+  if (!data.log && !data.settings && !data.notify) return null;
+  const log = cleanLog(data.log);
+  const here = getLog();
+  let added = 0;
+  for (const [k, v] of Object.entries(log)) if (v > (here[k] || 0)) added++;
+  const when = typeof data.savedAt === 'string' && !isNaN(Date.parse(data.savedAt))
+    ? data.savedAt : null;
+  return { days: Object.keys(log).length, added: added, savedAt: when,
+           hasSettings: !!(data.settings || data.notify || data.units || data.place) };
+}
+
+/* Put a backup back. The log is merged, never replaced: each day keeps
+   whichever count is higher, so restoring an old copy cannot erase what
+   has been logged since. Settings, notifications, units, language and
+   place are replaced only when asked, and each is read back through the
+   same validators as always, so nothing pasted is trusted as is. */
+function applyBackup(data, withSettings) {
+  const r = readBackup(data);
+  if (!r) return null;
+  const log = getLog();
+  for (const [k, v] of Object.entries(cleanLog(data.log))) {
+    if (v > (log[k] || 0)) log[k] = v;
+  }
+  saveLog(log);
+
+  if (withSettings) {
+    const put = (key, v) => { try { localStorage.setItem(key, JSON.stringify(v)); } catch {} };
+    if (data.settings && typeof data.settings === 'object') put('touchgrass.settings', data.settings);
+    if (data.notify && typeof data.notify === 'object') put('touchgrass.notify', data.notify);
+    if (data.units && typeof data.units === 'object') put('touchgrass.units', data.units);
+    const p = data.place;
+    if (p && typeof p === 'object' && Number.isFinite(p.lat) && Number.isFinite(p.lon)) {
+      put('touchgrass.place', p);
+    }
+    if (typeof data.lang === 'string' && TEXT[data.lang]) {
+      try { localStorage.setItem('touchgrass.lang', data.lang); } catch {}
+      LANG_CACHE = null;
+    }
+  }
+  syncToAndroid();
+  return r;
+}
+
+/* The app keeps a copy of everything the page tells it, in the part of
+   its storage that Android backs up. After a reinstall or on a new phone
+   that copy comes back but this page's own storage does not, so on a
+   page that has nothing yet, the copy is put back — log and settings
+   both, since there is nothing here for it to overwrite. The language
+   alone doesn't count as something: the page writes its guess on first
+   run. */
+const BACKUP_KEYS = ['touchgrass.log', 'touchgrass.settings', 'touchgrass.notify', 'touchgrass.place'];
+
+function restoreFromApp(bridge) {
+  try {
+    if (!bridge || typeof bridge.savedState !== 'function') return false;
+    for (const k of BACKUP_KEYS) if (localStorage.getItem(k) !== null) return false;
+    const saved = bridge.savedState();
+    if (!saved) return false;
+    return !!applyBackup(JSON.parse(saved), true);
+  } catch { return false; }
+}
+
+// When a copy was last shared or copied out, so the page can say so.
+function markExported() {
+  try { localStorage.setItem('touchgrass.exportedAt', new Date().toISOString()); } catch {}
+}
+function lastExported() {
+  try {
+    const v = localStorage.getItem('touchgrass.exportedAt');
+    return v && !isNaN(Date.parse(v)) ? v : null;
+  } catch { return null; }
+}
+
+if (typeof TouchGrassAndroid !== 'undefined') restoreFromApp(TouchGrassAndroid);
 
 
 /* ==========================================================

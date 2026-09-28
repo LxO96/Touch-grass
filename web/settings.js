@@ -623,8 +623,7 @@ paintNotify();
    ========================================================== */
 
 function dumpData() {
-  return JSON.stringify(
-    { settings: getSettings(), notify: getNotify(), log: getLog() }, null, 2);
+  return JSON.stringify(backupData(), null, 2);
 }
 
 function refreshBackup() {
@@ -637,7 +636,14 @@ function refreshBackup() {
   $('data-summary').textContent = days
     ? T().ui.dataSummary(days, trips)
     : T().ui.dataSummaryEmpty;
+
+  $('auto-backup').hidden = typeof TouchGrassAndroid === 'undefined';
+  const at = lastExported();
+  $('last-export').textContent = at ? T().ui.lastExported(shortDate(at)) : T().ui.neverExported;
 }
+
+const shortDate = (iso) => new Date(iso)
+  .toLocaleDateString(getLang(), { day: 'numeric', month: 'short', year: 'numeric' });
 
 const backupFilename = () => `touch-grass-${todayKey()}.json`;
 
@@ -650,6 +656,45 @@ const backupFilename = () => `touch-grass-${todayKey()}.json`;
    project to keep alive.
    ---------------------------------------------------------- */
 
+// A file in the downloads folder: the browser's way of saving.
+function downloadBackup(text, name) {
+  try {
+    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(url), 5000);
+    markExported(); refreshBackup();
+    note(T().ui.downloaded);
+  } catch {
+    note(T().ui.saveFailed);
+  }
+}
+
+/* SAVE. In the app the system's save dialog lets you pick where, and
+   the app calls back with the outcome: true saved, false failed, null
+   cancelled. Only a real file counts as a saved copy. */
+window.tgBackupSaved = (ok) => {
+  if (ok === null) return;
+  if (ok) { markExported(); refreshBackup(); note(T().ui.savedFile); }
+  else note(T().ui.saveFailed);
+};
+
+$('btn-save').addEventListener('click', () => {
+  const text = dumpData();
+  const name = backupFilename();
+  try {
+    if (typeof TouchGrassAndroid !== 'undefined' && TouchGrassAndroid.saveBackup) {
+      TouchGrassAndroid.saveBackup(text, name);
+      return;
+    }
+  } catch { /* fall through */ }
+  downloadBackup(text, name);
+});
+
+/* SHARE / EMAIL IT. Where the copy ends up is the other app's business,
+   so opening the share sheet is not counted as a saved copy. */
 $('btn-share').addEventListener('click', async () => {
   const text = dumpData();
   const name = backupFilename();
@@ -675,17 +720,7 @@ $('btn-share').addEventListener('click', async () => {
   }
 
   // 3. anywhere else: save it to disk
-  try {
-    const url = URL.createObjectURL(new Blob([text], { type: 'application/json' }));
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = name;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 5000);
-    note(T().ui.downloaded);
-  } catch {
-    note(T().ui.shareFailed);
-  }
+  downloadBackup(text, name);
 });
 
 $('btn-toggle-raw').addEventListener('click', () => {
@@ -706,33 +741,53 @@ $('btn-copy').addEventListener('click', async () => {
   }
 });
 
-$('btn-restore').addEventListener('click', () => {
-  let parsed;
-  try {
-    parsed = JSON.parse($('backup').value);
-  } catch {
-    note(T().ui.notValid);
-    return;
-  }
-  if (!parsed || typeof parsed !== 'object') {
-    note(T().ui.notValid);
-    return;
-  }
+/* ----------------------------------------------------------
+   Restoring: from a file, or from pasted text. Either way the
+   panel says what it would do first, and nothing changes until
+   RESTORE is pressed.
+   ---------------------------------------------------------- */
 
-  if (parsed.log && typeof parsed.log === 'object') saveLog(parsed.log);
-  if (parsed.settings && typeof parsed.settings === 'object') saveSettings(parsed.settings);
-  if (parsed.notify && typeof parsed.notify === 'object') {
-    try { localStorage.setItem('touchgrass.notify', JSON.stringify(parsed.notify)); } catch {}
-  }
+let PENDING = null;
 
-  // Re-read through the validators rather than trusting what was pasted.
-  SETTINGS = getSettings();
-  buildDials();
-  barInput.value = SETTINGS.bar;
-  $('bar-val').textContent = SETTINGS.bar;
-  refreshBackup();
-  renderPreview();
-  note(T().ui.restored);
+function offerRestore(text) {
+  let data = null;
+  try { data = JSON.parse(text); } catch { /* not JSON */ }
+  const r = readBackup(data);
+  if (!r) { closeRestore(); note(T().ui.notValid); return; }
+  PENDING = data;
+  $('restore-what').textContent =
+    T().ui.restoreWhat(r.savedAt ? shortDate(r.savedAt) : null, r.days, r.added);
+  $('restore-settings').checked = false;
+  $('restore-settings-row').hidden = !r.hasSettings;
+  $('restore-panel').hidden = false;
+  $('restore-panel').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+}
+
+function closeRestore() {
+  PENDING = null;
+  $('restore-panel').hidden = true;
+}
+
+$('btn-file').addEventListener('click', () => $('file-input').click());
+$('file-input').addEventListener('change', async (e) => {
+  const f = e.target.files && e.target.files[0];
+  e.target.value = '';                    // so the same file can be picked again
+  if (!f) return;
+  try { offerRestore(await f.text()); } catch { note(T().ui.notValid); }
+});
+
+$('btn-restore').addEventListener('click', () => offerRestore($('backup').value));
+$('btn-restore-cancel').addEventListener('click', closeRestore);
+
+$('btn-restore-go').addEventListener('click', () => {
+  if (!PENDING) return;
+  const withSettings = $('restore-settings').checked;
+  const r = applyBackup(PENDING, withSettings);
+  closeRestore();
+  if (!r) { note(T().ui.notValid); return; }
+  // Everything on the page was drawn from what may just have changed.
+  if (withSettings) location.reload();
+  else { refreshBackup(); note(T().ui.restoredDays(r.added)); }
 });
 
 let noteTimer = null;

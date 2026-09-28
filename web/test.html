@@ -2161,8 +2161,14 @@ const AURORA_OM = (() => {
 
 const auroraRow = (f, hour) => [f.now].concat(f.ahead).filter((h) => h.hour === hour)[0];
 
+// 28 September 2026 is two days past full moon, up from 18:00 in
+// Stockholm. The same night moved to 10 October has a new moon.
+const toNewMoon = (x) => JSON.parse(JSON.stringify(x)
+  .replace(/2026-09-28/g, '2026-10-10').replace(/2026-09-29/g, '2026-10-11'));
+const DARK_OM = toNewMoon(AURORA_OM), DARK_KP = toNewMoon(KP);
+
 check('the forecast marks a likely aurora from Kp', (() => {
-  const f = tgForecast({ om: AURORA_OM, kp: KP });
+  const f = tgForecast({ om: DARK_OM, kp: DARK_KP });
   const r = auroraRow(f, 22);                 // 20:00 UTC, Kp 5
   return r.aurora + ':' + r.auroraSource + ':' + r.auroraValue;
 })(), 'likely:kp:5');
@@ -2174,12 +2180,70 @@ check('without a Kp forecast nothing is marked',
   auroraRow(tgForecast({ om: AURORA_OM }), 22).aurora, null);
 
 check('OVATION refines the current hour only', (() => {
-  const f = tgForecast({ om: AURORA_OM, kp: KP, ovation: { coordinates: [[18, 60, 3]] } });
+  const f = tgForecast({ om: DARK_OM, kp: DARK_KP, ovation: { coordinates: [[18, 60, 3]] } });
   return f.now.aurora + ',' + auroraRow(f, 22).aurora;
 })(), 'null,likely');
 
+// Cloud cover. "Partly cloudy" can be most of the sky, so when Open-Meteo
+// gives a percentage it decides: more than half covered is no aurora.
+check('a partly cloudy hour that is mostly cloud hides it',
+  tgAuroraFor(darkClear({ cloud: 70 }), 7, needHere, null).level, null);
+check('half the sky clear is enough',
+  tgAuroraFor(darkClear({ cloud: 50 }), 7, needHere, null).level, 'likely');
+check('without a cloud cover the weather code decides',
+  tgAuroraFor(darkClear({ cloud: null }), 7, needHere, null).level, 'likely');
+check('a low cloud cover does not overrule an overcast code',
+  tgAuroraFor(darkClear({ code: 3, cloud: 20 }), 7, needHere, null).level, null);
+check('the forecast reads cloud cover for each hour', (() => {
+  const om = JSON.parse(JSON.stringify(DARK_OM));
+  om.hourly.cloud_cover = om.hourly.time.map((t) => t.slice(11, 13) === '22' ? 80 : 10);
+  const f = tgForecast({ om: om, kp: DARK_KP });
+  return auroraRow(f, 22).cloud + ':' + auroraRow(f, 22).aurora;
+})(), '80:null');
+check('an hour without a cloud cover has none',
+  auroraRow(tgForecast({ om: DARK_OM, kp: DARK_KP }), 22).cloud, null);
+
+// The moon. A crescent is fine; from half lit, above the horizon, it
+// washes out all but a strong aurora, so likely drops to possible and
+// the alert (which only fires on likely) stays quiet.
+const moonLit = (t) => Math.round(tgMoon(Date.parse(t), 59.33, 18.07).lit * 100) / 100;
+check('the full moon of 26 September 2026 is fully lit', moonLit('2026-09-26T16:49:00Z') >= 0.99, true);
+check('the new moon of 10 October 2026 is dark', moonLit('2026-10-10T04:50:00Z') <= 0.01, true);
+check('a bright moon still below the horizon is no matter',
+  tgMoonBright(Date.parse('2026-09-28T16:00:00Z'), 59.33, 18.07), false);
+check('a bright moon once risen is',
+  tgMoonBright(Date.parse('2026-09-28T17:00:00Z'), 59.33, 18.07), true);
+check('a crescent in the evening sky is no matter',
+  tgMoonBright(Date.parse('2026-10-17T18:00:00Z'), 59.33, 18.07), false);
+
+check('under a bright moon a likely aurora is only possible', (() => {
+  const r = auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 22);
+  return r.aurora + ':' + r.auroraMoon;
+})(), 'possible:true');
+check('under a bright moon OVATION likely is only possible too',
+  tgAuroraFor(darkClear(), null, needHere, 41, true).level, 'possible');
+check('a bright moon leaves a possible aurora possible',
+  tgAuroraFor(darkClear(), needHere - 0.5, needHere, null, true).level, 'possible');
+check('a bright moon does not invent an aurora',
+  tgAuroraFor(darkClear(), needHere - 2, needHere, null, true).level, null);
+check('on a dark night the moon is not mentioned',
+  auroraRow(tgForecast({ om: DARK_OM, kp: DARK_KP }), 22).auroraMoon, false);
+check('the bright moon is named in the reason', (() => {
+  const h = auroraRow(tgForecast({ om: AURORA_OM, kp: KP }), 22);
+  return factorFact('auroraPossible', h);
+})(), T().ui.brightMoon(T().ui.kpFact(5)));
+check('the bright moon is named in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    return typeof T().ui.brightMoon === 'function' && T().ui.brightMoon('Kp 5') !== 'Kp 5';
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
 check('OVATION is worth fetching on a dark, clear, active night',
-  tgWantsOvation(tgForecast({ om: AURORA_OM, kp: KP })), true);
+  tgWantsOvation(tgForecast({ om: DARK_OM, kp: DARK_KP })), true);
 check('OVATION is not worth fetching when Kp is quiet',
   tgWantsOvation(tgForecast({ om: AURORA_OM, kp: [
     { time_tag: '2026-09-28T18:00:00', kp: 1 }] })), false);
@@ -2196,6 +2260,140 @@ check('the aurora is named in both languages', (() => {
   localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
   return ok;
 })(), true);
+
+/* ================= backups ================= */
+
+// Borrow every key a backup touches, and give them all back afterwards.
+const BK = ['touchgrass.log', 'touchgrass.settings', 'touchgrass.notify',
+  'touchgrass.place', 'touchgrass.units', 'touchgrass.lang', 'touchgrass.exportedAt'];
+const BK_REAL = BK.map((k) => localStorage.getItem(k));
+const bkClear = () => { for (const k of BK) localStorage.removeItem(k); LANG_CACHE = null; };
+
+bkClear();
+localStorage.setItem('touchgrass.log', JSON.stringify({ '2026-09-01': 2, '2026-09-02': 1 }));
+
+check('a backup carries the log, settings, reminders, units, language and place', (() => {
+  const b = backupData();
+  return ['log', 'settings', 'notify', 'units', 'lang', 'place', 'savedAt']
+    .every((k) => Object.prototype.hasOwnProperty.call(b, k)) && b.app === 'touchgrass';
+})(), true);
+
+check('a backup round-trips through JSON', readBackup(JSON.parse(JSON.stringify(backupData()))).days, 2);
+
+check('something that is not a backup is refused', [
+  readBackup(null), readBackup([1, 2]), readBackup({ hello: 1 }), readBackup('text')
+].every((r) => r === null), true);
+
+check('the old backup shape, without a date, still reads', (() => {
+  const r = readBackup({ settings: {}, notify: {}, log: { '2026-09-03': 1 } });
+  return r.days + ':' + r.savedAt;
+})(), '1:null');
+
+check('a restore counts the days it would raise', readBackup({ log: {
+  '2026-09-01': 1,        // lower than here: stays
+  '2026-09-02': 3,        // higher: raised
+  '2026-09-05': 1         // new: added
+} }).added, 2);
+
+check('a restore merges, keeping the higher count for each day', (() => {
+  applyBackup({ log: { '2026-09-01': 1, '2026-09-02': 3, '2026-09-05': 1 } }, false);
+  return JSON.stringify(getLog());
+})(), JSON.stringify({ '2026-09-01': 2, '2026-09-02': 3, '2026-09-05': 1 }));
+
+check('a backup counts only the days that are real',
+  readBackup({ log: { '2026-02-30': 4, 'nonsense': 1, '2026-09-07': 1 } }).days, 1);
+
+check('a restored log is cleaned like any other', (() => {
+  applyBackup({ log: { '2026-02-30': 4, 'nonsense': 2, '2026-09-06': -1 } }, false);
+  return Object.keys(getLog()).length;
+})(), 3);
+
+check('settings are left alone unless asked for', (() => {
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ bar: 70 }));
+  applyBackup({ log: {}, settings: { bar: 40 } }, false);
+  return getSettings().bar;
+})(), 70);
+
+check('when asked, settings, reminders, units, language and place come back', (() => {
+  applyBackup({ log: {}, settings: { bar: 40 }, notify: { enabled: true, hour: 8 },
+    units: { temp: 'f', wind: 'ms' }, lang: 'sv',
+    place: { lat: 67.86, lon: 20.23, label: 'Kiruna' } }, true);
+  const out = [getSettings().bar, getNotify().enabled, getNotify().hour,
+    getUnits().temp, getLang(), loadPlace().label].join(',');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return out;
+})(), '40,true,8,f,sv,Kiruna');
+
+check('restored settings still go through the validators', (() => {
+  applyBackup({ log: {}, settings: { bar: 9000 }, notify: { hour: 99 },
+    units: { temp: 'kelvin' }, lang: 'klingon', place: { lat: 'north' } }, true);
+  return [getSettings().bar <= 100, getNotify().hour <= 23, getUnits().temp,
+    getLang(), loadPlace().label].join(',');
+})(), 'true,true,c,en,Kiruna');
+
+// The copy the app keeps, put back after a reinstall or on a new phone.
+const appWith = (state) => ({ savedState: () => state });
+const SAVED = JSON.stringify({ log: { '2026-08-01': 3 }, settings: { bar: 55 },
+  notify: { enabled: true }, lang: 'en', place: { lat: 59.33, lon: 18.07, label: 'Stockholm' },
+  visitsToday: 0, today: '2026-09-28' });
+
+check('an empty page restores the copy the app kept', (() => {
+  bkClear();
+  localStorage.setItem('touchgrass.lang', 'en');   // the first-run guess is not data
+  const done = restoreFromApp(appWith(SAVED));
+  return done + ':' + getLog()['2026-08-01'] + ':' + getSettings().bar + ':' + loadPlace().label;
+})(), 'true:3:55:Stockholm');
+
+check('a page that has data is never overwritten by the app copy', (() => {
+  bkClear();
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ bar: 80 }));
+  const done = restoreFromApp(appWith(SAVED));
+  return done + ':' + getSettings().bar + ':' + Object.keys(getLog()).length;
+})(), 'false:80:0');
+
+check('any one kept thing counts as data', BACKUP_KEYS.every((k) => {
+  bkClear();
+  localStorage.setItem(k, '{}');
+  return restoreFromApp(appWith(SAVED)) === false;
+}), true);
+
+check('no copy, a blank copy, or a broken one is no restore', (() => {
+  bkClear();
+  return [restoreFromApp(appWith('')), restoreFromApp(appWith('{broken')),
+    restoreFromApp(null), restoreFromApp({})].join(',');
+})(), 'false,false,false,false');
+
+check('a copy is remembered as exported', (() => {
+  bkClear();
+  const before = lastExported();
+  markExported();
+  return before + ':' + (typeof lastExported() === 'string');
+})(), 'null:true');
+
+check('the backup words exist in both languages', (() => {
+  const named = (code) => {
+    localStorage.setItem('touchgrass.lang', code); LANG_CACHE = null;
+    const u = T().ui;
+    return ['autoBackup', 'neverExported', 'restoreFile', 'restoreMerge',
+      'restoreSettings', 'restoreGo', 'cancel', 'saveFile', 'savedFile', 'saveFailed'].every((k) => typeof u[k] === 'string') &&
+      typeof u.restoreWhat(null, 3, 1) === 'string' &&
+      typeof u.restoredDays(2) === 'string' && typeof u.lastExported('1 Sep') === 'string';
+  };
+  const ok = named('en') && named('sv');
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return ok;
+})(), true);
+
+check('the restore summary reads right', [
+  T().ui.restoreWhat('12 Sep 2026', 143, 5),
+  T().ui.restoreWhat(null, 1, 0)
+].join(' | '), 'A copy from 12 Sep 2026 with 143 days logged. 5 days have more trips than here. | ' +
+  'A copy with 1 day logged. Nothing in it is new to this phone.');
+
+BK.forEach((k, i) => {
+  if (BK_REAL[i] === null) localStorage.removeItem(k); else localStorage.setItem(k, BK_REAL[i]);
+});
+LANG_CACHE = null;
 
 /* ================= report ================= */
 

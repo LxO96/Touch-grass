@@ -57,6 +57,41 @@ class MainActivity : AppCompatActivity() {
         pendingOrigin = null
     }
 
+    /* "Restore from file": the page's <input type=file> asks the WebView,
+       the WebView asks here, and the system picker answers. */
+    private var pendingFiles: android.webkit.ValueCallback<Array<Uri>>? = null
+    private val pickFile = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        pendingFiles?.onReceiveValue(
+            WebChromeClient.FileChooserParams.parseResult(result.resultCode, result.data)
+        )
+        pendingFiles = null
+    }
+
+    /* "Save": the system's own save dialog picks the place (Downloads,
+       Drive, anywhere), and the page is told whether it worked, so it
+       only says "saved" when there is a file. */
+    private var pendingSave: String? = null
+    private val saveFile = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        val text = pendingSave
+        pendingSave = null
+        val result = when {
+            uri == null -> "null"                  // they changed their mind
+            text == null -> "false"
+            else -> try {
+                contentResolver.openOutputStream(uri, "wt")!!.use { it.write(text.toByteArray()) }
+                "true"
+            } catch (e: Exception) {
+                Log.e(TAG, "saving the backup failed", e)
+                "false"
+            }
+        }
+        web.evaluateJavascript("window.tgBackupSaved && tgBackupSaved($result)", null)
+    }
+
     private val askForNotifications = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { /* granted or not, the rest of the app is unaffected */
@@ -126,6 +161,31 @@ class MainActivity : AppCompatActivity() {
                 n
             } catch (_: Exception) {
                 0
+            }
+        }
+
+        /**
+         * The copy of the page's state that Android's backup carries, for
+         * the page to restore from when its own storage comes back empty.
+         * Empty string when there is none.
+         */
+        @JavascriptInterface
+        fun savedState(): String = try {
+            Prefs.pageState(this@MainActivity) ?: ""
+        } catch (_: Exception) {
+            ""
+        }
+
+        @JavascriptInterface
+        fun saveBackup(text: String, filename: String) {
+            runOnUiThread {
+                pendingSave = text
+                try {
+                    saveFile.launch(safeName(filename))
+                } catch (_: ActivityNotFoundException) {
+                    pendingSave = null
+                    web.evaluateJavascript("window.tgBackupSaved && tgBackupSaved(false)", null)
+                }
             }
         }
 
@@ -326,6 +386,23 @@ class MainActivity : AppCompatActivity() {
                 }
             }
 
+            override fun onShowFileChooser(
+                view: WebView,
+                callback: android.webkit.ValueCallback<Array<Uri>>,
+                params: FileChooserParams
+            ): Boolean {
+                // A chooser still open never answered; let it go first.
+                pendingFiles?.onReceiveValue(null)
+                pendingFiles = callback
+                return try {
+                    pickFile.launch(params.createIntent())
+                    true
+                } catch (_: ActivityNotFoundException) {
+                    pendingFiles = null
+                    false
+                }
+            }
+
             override fun onGeolocationPermissionsHidePrompt() {
                 pendingCallback = null
                 pendingOrigin = null
@@ -371,8 +448,8 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(Intent.createChooser(send, null))
         } catch (_: Exception) {
-            // Nothing to share to, or no room to write. The page keeps the
-            // copy button, so this is not worth crashing over.
+            // Nothing to share to, or no room to write. The page still has
+            // SAVE, so this is not worth crashing over.
         }
     }
 

@@ -453,19 +453,20 @@ class ScoringEngineTest {
 
     @Test
     fun `Kp reaches the blend through Rhino and marks a dark clear hour`() {
-        // Stockholm on a dark, clear evening: 21:00 local onwards, UTC+2.
-        val hours = (0 until 8).map { "2026-09-28T${"%02d".format(21 + it - if (21 + it > 23) 24 else 0)}:00" }
-            .mapIndexed { i, t -> if (i >= 3) t.replace("2026-09-28", "2026-09-29") else t }
+        // Stockholm on a dark, clear, moonless evening (new moon on the
+        // 10th): 21:00 local onwards, UTC+2.
+        val hours = (0 until 8).map { "2026-10-10T${"%02d".format(21 + it - if (21 + it > 23) 24 else 0)}:00" }
+            .mapIndexed { i, t -> if (i >= 3) t.replace("2026-10-10", "2026-10-11") else t }
         fun col(v: Any) = hours.joinToString(",", "[", "]") { "$v" }
         val om = """{"latitude":59.33,"longitude":18.07,"utc_offset_seconds":7200,
-            "current":{"time":"2026-09-28T21:10"},
+            "current":{"time":"2026-10-10T21:10"},
             "hourly":{"time":${hours.joinToString(",", "[", "]") { "\"$it\"" }},
               "is_day":${col(0)},"weather_code":${col(0)},"temperature_2m":${col(8)},
               "apparent_temperature":${col(6)},"precipitation_probability":${col(0)},
               "precipitation":${col(0)},"wind_speed_10m":${col(6)}},
-            "daily":{"time":["2026-09-28"],"sunset":["2026-09-28T18:40"]}}"""
-        val kp = """[{"time_tag":"2026-09-28T18:00:00","kp":6},{"time_tag":"2026-09-28T21:00:00","kp":6},
-            {"time_tag":"2026-09-29T00:00:00","kp":6}]"""
+            "daily":{"time":["2026-10-10"],"sunset":["2026-10-10T18:40"]}}"""
+        val kp = """[{"time_tag":"2026-10-10T18:00:00","kp":6},{"time_tag":"2026-10-10T21:00:00","kp":6},
+            {"time_tag":"2026-10-11T00:00:00","kp":6}]"""
         fun marked(json: String?): Int {
             val o = JSONObject(json!!)
             val rows = listOf(o.getJSONObject("now")) +

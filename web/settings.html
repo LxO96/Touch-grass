@@ -246,20 +246,42 @@
   <section class="card">
     <h2 data-t="yourData">Your data</h2>
     <p class="hint" data-t="dataBlurb">
-      Everything lives in this browser's local storage &mdash; nothing is sent
-      anywhere, and there's no account. Clearing site data wipes your year, so
-      if a long streak starts to mean something, keep a copy of this text.
+      Everything lives on this device &mdash; nothing is sent anywhere, and
+      there's no account. Clearing its data wipes your year, so if a long
+      streak starts to mean something, keep a copy somewhere safe.
     </p>
 
     <p class="datasum" id="data-summary">&nbsp;</p>
+    <p class="hint small" id="auto-backup" data-t="autoBackup" hidden>
+      This phone's own backup keeps a copy too, so a new phone or a reinstall brings it back.
+    </p>
+    <p class="hint small" id="last-export">&nbsp;</p>
 
-    <div class="toggle">
-      <button type="button" class="btn big-btn" id="btn-share" data-t="share">SHARE / EMAIL IT</button>
-      <button type="button" class="btn" id="btn-copy" data-t="copy">COPY</button>
+    <div class="toggle wrap">
+      <button type="button" class="btn big-btn" id="btn-save" data-t="saveFile">SAVE</button>
+      <button type="button" class="btn" id="btn-share" data-t="share">SHARE / EMAIL IT</button>
+      <button type="button" class="btn" id="btn-file" data-t="restoreFile">RESTORE FROM FILE</button>
+      <input type="file" id="file-input" accept=".json,application/json,text/plain" hidden>
     </div>
     <p class="hint small" data-t="dataAdvice">
-      Send it to yourself, or save it to Drive or Files. Any copy will restore.
+      Save it to Files or Drive, or send it to yourself. Any copy will restore.
     </p>
+
+    <!-- What a restore would do, before it does it. -->
+    <div id="restore-panel" class="restore-panel" hidden>
+      <p id="restore-what">&nbsp;</p>
+      <p class="hint small" data-t="restoreMerge">
+        Days are merged: each keeps whichever count is higher, so nothing logged here is lost.
+      </p>
+      <label class="switch" id="restore-settings-row">
+        <input type="checkbox" id="restore-settings">
+        <span data-t="restoreSettings">Also bring back its settings, reminders and place</span>
+      </label>
+      <div class="toggle">
+        <button type="button" class="btn big-btn" id="btn-restore-go" data-t="restoreGo">RESTORE</button>
+        <button type="button" class="btn" id="btn-restore-cancel" data-t="cancel">CANCEL</button>
+      </div>
+    </div>
 
     <p class="hint small">
       <button type="button" class="linkbtn" id="btn-toggle-raw" data-t="showTheData">Show the raw text</button>
@@ -268,6 +290,7 @@
     <div id="raw-wrap" hidden>
       <textarea id="backup" class="backup" spellcheck="false" aria-label="Your saved data"></textarea>
       <div class="toggle">
+        <button type="button" class="btn" id="btn-copy" data-t="copy">COPY</button>
         <button type="button" class="btn" id="btn-restore" data-t="restore">RESTORE FROM TEXT</button>
       </div>
     </div>

@@ -1031,6 +1031,16 @@ h2.spaced { margin-top: 26px; }
 
 #raw-wrap[hidden] { display: none; }
 
+.toggle.wrap { flex-wrap: wrap; }
+.restore-panel {
+  border: 3px solid var(--ink);
+  border-left-width: 16px;
+  border-left-color: var(--grass);
+  padding: 4px 14px 2px;
+  margin: 14px 0;
+}
+.restore-panel .switch { font-size: 20px; margin: 10px 0 0; }
+
 @media screen and (max-width: 640px) {
   .srclist { grid-template-columns: 1fr; gap: 0 0; }
   .srclist dt { margin-top: 8px; font-size: 18px; }

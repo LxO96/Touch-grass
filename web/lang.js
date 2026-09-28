@@ -227,6 +227,7 @@ en: {
     greyDays: (n) => `after ${n} grey days`,
     kpFact: (kp) => `Kp ${kp}`,
     ovalFact: (pct) => `${pct}% chance nearby`,
+    brightMoon: (fact) => `${fact}, bright moon`,
     auroraToggle: 'The aurora is worth a bonus',
     auroraBlurb: 'When the northern lights are likely where you are and the sky is dark and clear: +20, or +10 when they may show low in the north.',
     auroraAlert: 'Tell me when the aurora is likely',
@@ -281,7 +282,7 @@ en: {
     houseRuleBlurb: 'Otherwise: if you haven’t been out yet today, it will never tell you to stay in. The worst it will say is "not yet, go at four".',
 
     yourData: 'Your data',
-    dataBlurb: "Everything lives in this browser's local storage — nothing is sent anywhere, and there's no account. Clearing site data wipes your year, so if a long streak starts to mean something, keep a copy of this text.",
+    dataBlurb: "Everything lives on this device — nothing is sent anywhere, and there's no account. Clearing its data wipes your year, so if a long streak starts to mean something, keep a copy somewhere safe.",
     copy: 'COPY', restore: 'RESTORE FROM TEXT',
     copied: 'Copied. Paste it somewhere safe.',
     pressCtrlC: 'Press Ctrl+C to copy the selected text.',
@@ -325,7 +326,23 @@ en: {
     shared: 'Opening the share sheet\u2026',
     shareFailed: "Couldn't open the share sheet. Copy the text instead.",
     downloaded: 'Saved as a file.',
-    dataAdvice: 'Send it to yourself, or save it to Drive or Files. Any copy will restore.'
+    dataAdvice: 'Save it to Files or Drive, or send it to yourself. Any copy will restore.',
+    autoBackup: "This phone's own backup keeps a copy too, so a new phone or a reinstall brings it back.",
+    lastExported: (d) => `Last copy saved ${d}.`,
+    saveFile: 'SAVE',
+    savedFile: 'Saved.',
+    saveFailed: "Couldn't save the file. Try sharing it instead.",
+    neverExported: "You haven't saved a copy yet.",
+    restoreFile: 'RESTORE FROM FILE',
+    restoreWhat: (when, days, added) =>
+      (when ? `A copy from ${when}` : 'A copy') + ` with ${days} ${days === 1 ? 'day' : 'days'} logged. ` +
+      (added === 0 ? 'Nothing in it is new to this phone.'
+        : `${added} ${added === 1 ? 'day has' : 'days have'} more trips than here.`),
+    restoreMerge: 'Days are merged: each keeps whichever count is higher, so nothing logged here is lost.',
+    restoreSettings: 'Also bring back its settings, reminders and place',
+    restoreGo: 'RESTORE', cancel: 'CANCEL',
+    restoredDays: (n) => n === 0 ? 'Restored. No days needed changing.'
+      : `Restored. ${n} ${n === 1 ? 'day' : 'days'} updated.`
   },
 
   verdict: {
@@ -570,6 +587,7 @@ sv: {
     greyDays: (n) => `efter ${n} grå dagar`,
     kpFact: (kp) => `Kp ${kp}`,
     ovalFact: (pct) => `${pct} % chans i närheten`,
+    brightMoon: (fact) => `${fact}, starkt månljus`,
     auroraToggle: 'Norrsken ger bonus',
     auroraBlurb: 'När norrskenet troligen syns där du är och himlen är mörk och klar: +20, eller +10 när det kanske syns lågt i norr.',
     auroraAlert: 'Säg till när norrsken är troligt',
@@ -624,7 +642,7 @@ sv: {
     houseRuleBlurb: 'I övrigt: har du inte varit ute idag säger den aldrig åt dig att stanna inne. Det värsta den säger är "inte än, gå kl fyra".',
 
     yourData: 'Dina data',
-    dataBlurb: 'Allt ligger i den här webbläsarens lokala lagring — ingenting skickas någonstans och det finns inget konto. Rensar du webbplatsdata försvinner ditt år, så om en lång svit börjar betyda något: spara en kopia av den här texten.',
+    dataBlurb: 'Allt ligger på den här enheten — ingenting skickas någonstans och det finns inget konto. Rensar du dess data försvinner ditt år, så om en lång svit börjar betyda något: spara en kopia någonstans säkert.',
     copy: 'KOPIERA', restore: 'ÅTERSTÄLL FRÅN TEXT',
     copied: 'Kopierat. Klistra in det någonstans säkert.',
     pressCtrlC: 'Tryck Ctrl+C för att kopiera den markerade texten.',
@@ -665,7 +683,23 @@ sv: {
     shared: 'Öppnar delningsrutan\u2026',
     shareFailed: 'Kunde inte öppna delningsrutan. Kopiera texten i stället.',
     downloaded: 'Sparad som fil.',
-    dataAdvice: 'Skicka den till dig själv, eller spara den i Drive eller Filer. Vilken kopia som helst går att återställa.'
+    dataAdvice: 'Spara den i Filer eller Drive, eller skicka den till dig själv. Vilken kopia som helst går att återställa.',
+    autoBackup: 'Telefonens egen säkerhetskopia sparar också en kopia, så en ny telefon eller en ominstallation får tillbaka den.',
+    lastExported: (d) => `Senaste kopian sparad ${d}.`,
+    saveFile: 'SPARA',
+    savedFile: 'Sparat.',
+    saveFailed: 'Kunde inte spara filen. Prova att dela den i stället.',
+    neverExported: 'Du har inte sparat någon kopia än.',
+    restoreFile: 'ÅTERSTÄLL FRÅN FIL',
+    restoreWhat: (when, days, added) =>
+      (when ? `En kopia från ${when}` : 'En kopia') + ` med ${days} ${days === 1 ? 'dag' : 'dagar'} noterade. ` +
+      (added === 0 ? 'Inget i den är nytt för den här telefonen.'
+        : `${added} ${added === 1 ? 'dag har' : 'dagar har'} fler turer än här.`),
+    restoreMerge: 'Dagarna slås ihop: varje dag behåller det högsta antalet, så inget som noterats här går förlorat.',
+    restoreSettings: 'Ta även tillbaka dess inställningar, påminnelser och plats',
+    restoreGo: 'ÅTERSTÄLL', cancel: 'AVBRYT',
+    restoredDays: (n) => n === 0 ? 'Återställt. Inga dagar behövde ändras.'
+      : `Återställt. ${n} ${n === 1 ? 'dag' : 'dagar'} uppdaterade.`
   },
 
   verdict: {

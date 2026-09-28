@@ -45,7 +45,7 @@ const clockTime = (ms) => new Date(ms)
 const OM_URL = (lat, lon) => 'https://api.open-meteo.com/v1/forecast'
   + `?latitude=${lat}&longitude=${lon}`
   + '&current=temperature_2m,apparent_temperature,precipitation,weather_code,wind_speed_10m,is_day'
-  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day'
+  + '&hourly=temperature_2m,apparent_temperature,precipitation_probability,precipitation,weather_code,wind_speed_10m,is_day,cloud_cover'
   // Weeks of daily history for the firsts; hourly stays to the next 48.
   + '&daily=sunset,precipitation_sum,snowfall_sum,sunshine_duration,apparent_temperature_max&past_days=92&past_hours=1&forecast_hours=48&forecast_days=2&timezone=auto';
 

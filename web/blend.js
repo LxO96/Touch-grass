@@ -443,8 +443,45 @@ var TG_AURORA = {
   possibleDeg: 2,                  // this far short still shows low in the north
   ovalLikely: 30, ovalPossible: 10,// OVATION percent
   northDeg: 5,                     // seen low over the horizon from this far south
-  sky: ['clear', 'mostlyClear', 'partly']
+  sky: ['clear', 'mostlyClear', 'partly'],
+  maxCloud: 50,                    // percent; "partly cloudy" spans far more than that
+  moonLit: 0.5                     // half lit or more washes a faint aurora out
 };
+
+/* Where the moon is and how much of it is lit, from a short series
+   (the one SunCalc uses): good to a fraction of a degree, which is all
+   "is it up, and is it bright" needs. `ms` is epoch millis. */
+function tgMoon(ms, lat, lon) {
+  var r = Math.PI / 180, e = r * 23.4397;
+  var d = ms / 86400000 - 0.5 + 2440588 - 2451545;   // days since J2000
+  var L = r * (218.316 + 13.176396 * d), M = r * (134.963 + 13.064993 * d);
+  var F = r * (93.272 + 13.229350 * d);
+  var l = L + r * 6.289 * Math.sin(M), b = r * 5.128 * Math.sin(F);
+  var dist = 385001 - 20905 * Math.cos(M);
+  var ra = Math.atan2(Math.sin(l) * Math.cos(e) - Math.tan(b) * Math.sin(e), Math.cos(l));
+  var dec = Math.asin(Math.sin(b) * Math.cos(e) + Math.cos(b) * Math.sin(e) * Math.sin(l));
+
+  var H = r * (280.16 + 360.9856235 * d) + r * lon - ra, phi = r * lat;
+  var alt = Math.asin(Math.sin(phi) * Math.sin(dec) + Math.cos(phi) * Math.cos(dec) * Math.cos(H));
+
+  var sM = r * (357.5291 + 0.98560028 * d);
+  var sL = sM + r * (1.9148 * Math.sin(sM) + 0.02 * Math.sin(2 * sM) + 0.0003 * Math.sin(3 * sM)) +
+           r * 102.9372 + Math.PI;
+  var sDec = Math.asin(Math.sin(e) * Math.sin(sL));
+  var sRa = Math.atan2(Math.sin(sL) * Math.cos(e), Math.cos(sL));
+  var sDist = 149598000;
+  var gap = Math.acos(Math.max(-1, Math.min(1, Math.sin(sDec) * Math.sin(dec) +
+            Math.cos(sDec) * Math.cos(dec) * Math.cos(sRa - ra))));
+  var inc = Math.atan2(sDist * Math.sin(gap), dist - sDist * Math.cos(gap));
+  return { altitude: alt / r, lit: (1 + Math.cos(inc)) / 2 };
+}
+
+/* A bright moon above the horizon: a crescent is fine, but from half
+   lit up it drowns all but a strong aurora. */
+function tgMoonBright(ms, lat, lon) {
+  var m = tgMoon(ms, lat, lon);
+  return m.altitude > 0 && m.lit >= TG_AURORA.moonLit;
+}
 
 function tgGeomagLat(lat, lon) {
   var r = Math.PI / 180;
@@ -492,13 +529,27 @@ function tgOvationAt(ov, lat, lon) {
 
 /* What the aurora means for one hour. `oval` (OVATION percent) wins over
    Kp for the hour it covers; otherwise Kp against what this latitude
-   needs. Dark and clear-ish, or nothing. */
-function tgAuroraFor(row, kp, need, oval) {
+   needs. Dark and clear-ish, or nothing. Under a bright moon a likely
+   aurora is only possible: it may still be there, but it is not worth
+   waking anyone for. */
+function tgAuroraFor(row, kp, need, oval, moonlit) {
+  var a = tgAuroraSky(row, kp, need, oval);
+  if (moonlit && a.level) {
+    a.moon = true;
+    if (a.level === 'likely') a.level = 'possible';
+  }
+  return a;
+}
+
+function tgAuroraSky(row, kp, need, oval) {
   var none = { level: null, source: null, value: null };
   if (row.isDay || row.twilight) return none;
   var kind = tgSkyKind(row.code), ok = false, i;
   for (i = 0; i < TG_AURORA.sky.length; i++) if (TG_AURORA.sky[i] === kind) ok = true;
   if (!ok) return none;
+  // The weather code is coarse; the cloud cover, when there is one, says
+  // whether there is actually sky to see it in.
+  if (typeof row.cloud === 'number' && row.cloud > TG_AURORA.maxCloud) return none;
 
   if (typeof oval === 'number') {
     if (oval >= TG_AURORA.ovalLikely) return { level: 'likely', source: 'oval', value: oval };
@@ -554,7 +605,7 @@ function tgColumn(H, name) {
 function tgNormaliseOm(d) {
   var res = { hours: [], history: null,
               daylight: { byTime: {}, localHourByTime: {}, localDateByTime: {},
-                          sunsetMin: null, nowUtc: null, today: null } };
+                          cloudByTime: {}, sunsetMin: null, nowUtc: null, today: null } };
   if (!d || !d.hourly || !d.hourly.time || !d.hourly.time.length) return res;
 
   var off = tgNum(d.utc_offset_seconds, 0);
@@ -567,6 +618,7 @@ function tgNormaliseOm(d) {
   var winds = tgColumn(H, 'wind_speed_10m');
   var codes = tgColumn(H, 'weather_code');
   var isDays = tgColumn(H, 'is_day');
+  var clouds = tgColumn(H, 'cloud_cover');
   var i;
 
   /* The hour the user is actually standing in. Open-Meteo's hourly block
@@ -594,6 +646,7 @@ function tgNormaliseOm(d) {
       code: tgNum(codes[i], 3)
     });
     res.daylight.byTime[utc] = tgNum(isDays[i], 0) === 1;
+    res.daylight.cloudByTime[utc] = typeof clouds[i] === 'number' ? clouds[i] : null;
     res.daylight.localHourByTime[utc] = parseInt(times[i].slice(11, 13), 10);
     res.daylight.localDateByTime[utc] = times[i].slice(0, 10);
   }
@@ -672,14 +725,17 @@ function tgForecast(raw) {
       time: b.time, hour: localHour, feels: b.feels, temp: b.temp,
       pop: b.pop, precip: b.precip, wind: b.wind, code: b.code,
       isDay: isDay, twilight: tgTwilight(spine.daylight.byTime, b.time, isDay),
+      cloud: spine.daylight.cloudByTime[b.time] === undefined ? null : spine.daylight.cloudByTime[b.time],
       novelty: null, noveltyDays: null,
-      aurora: null, auroraSource: null, auroraValue: null,
+      aurora: null, auroraSource: null, auroraValue: null, auroraMoon: false,
       hoursFromNow: 0, contributors: b.sources
     });
     var row = rows[rows.length - 1];
     var aur = tgAuroraFor(row, tgKpAt(raw.kp, b.time), kpNeed,
-                          rows.length === 1 ? oval : null);
+                          rows.length === 1 ? oval : null,
+                          here ? tgMoonBright(Date.parse(b.time), here.latitude, here.longitude) : false);
     row.aurora = aur.level;
+    row.auroraMoon = !!aur.moon;
     row.auroraSource = aur.source;
     row.auroraValue = aur.value;
     if (spine.daylight.localDateByTime[b.time] === spine.daylight.today) {

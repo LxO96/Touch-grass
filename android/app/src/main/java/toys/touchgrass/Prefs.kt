@@ -60,6 +60,11 @@ object Prefs {
             putInt("visitsToday", o.optInt("visitsToday", 0))
             putString("today", o.optString("today", ""))
 
+            // The page's whole state as it sent it: Android's backup carries
+            // this file, the page's own storage it does not, so this is
+            // what the page restores from after a reinstall or a new phone.
+            putString("pageState", json)
+
             if (p != null) {
                 putFloat("lat", p.optDouble("lat", 0.0).toFloat())
                 putFloat("lon", p.optDouble("lon", 0.0).toFloat())
@@ -68,6 +73,9 @@ object Prefs {
             }
         }.apply()
     }
+
+    /** The page's state as it last sent it, or null if it never has. */
+    fun pageState(c: Context): String? = sp(c).getString("pageState", null)
 
     /** The page's per-kind weather ratings, as stored by [store]. */
     private fun skyRatings(c: Context): Map<String, Int> = try {

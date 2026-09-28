@@ -121,6 +121,9 @@ tasks.withType<Test>().configureEach {
     workingDir = rootProject.projectDir
     systemProperty("touchgrass.scoring.js", rootProject.file("../web/scoring.js").absolutePath)
     systemProperty("touchgrass.blend.js", rootProject.file("../web/blend.js").absolutePath)
+    // The tests read the web app by path, which Gradle cannot see, so a
+    // change to blend.js alone would otherwise leave them "up to date".
+    inputs.dir(rootProject.file("../web")).withPropertyName("webApp")
 }
 
 androidComponents {
