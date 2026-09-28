@@ -332,9 +332,14 @@ $('next-month').addEventListener('click', () => stepMonth(+1));
     if ((Math.abs(dx) > width / 4 || quick) && shiftMonth(CAL.year, CAL.month, delta)) {
       settle(dx < 0 ? -width : width, () => {
         stepMonth(delta);
-        // The new month comes in from the other side.
+        // The new month comes in from the other side. Park it there with no
+        // transition and force the browser to lay that out before sliding
+        // it home — otherwise the off-screen start is never drawn and the
+        // new month appears to leave the same way the old one did.
+        grid.style.transition = 'none';
         grid.style.transform = `translateX(${dx < 0 ? width : -width}px)`;
-        requestAnimationFrame(() => settle(0));
+        void grid.offsetWidth;
+        settle(0);
       });
     } else {
       settle(0);                                    // not far enough, or the future
