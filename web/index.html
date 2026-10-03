@@ -38,6 +38,18 @@
     </div>
   </section>
 
+  <!-- ============ TODAY'S TRIPS ============ -->
+  <section class="card" id="been-card">
+    <h2 data-t="today">Today</h2>
+    <p class="count" id="count">Not yet</p>
+    <p class="since" id="since">&nbsp;</p>
+    <div class="toggle">
+      <button type="button" class="btn big-btn" id="btn-add" data-t="iWentOut">+ I WENT OUT</button>
+      <button type="button" class="btn undo" id="btn-undo" title="Undo one trip">&minus;</button>
+    </div>
+    <p class="hint small" id="streak-note">&nbsp;</p>
+  </section>
+
   <!-- ============ RIGHT NOW ============ -->
   <section class="card" id="now-card">
     <h2 data-t="rightNow">Right now</h2>
@@ -57,20 +69,30 @@
     <h2 data-t="next12">The next 12 hours</h2>
     <p class="hint" data-t="next12Hint">Taller bar = better grass-touching weather.</p>
     <div class="chart" id="chart"></div>
-    <p class="hint small" id="chart-hint" data-t="tapAnHour">Tap an hour to see why.</p>
+    <p class="hint small" id="chart-hint" data-t="tapAnHour">Tap an hour for its forecast and score.</p>
     <div class="why" id="why" hidden></div>
   </section>
 
-  <!-- ============ TODAY'S TRIPS ============ -->
-  <section class="card" id="been-card">
-    <h2 data-t="today">Today</h2>
-    <p class="count" id="count">Not yet</p>
-    <p class="since" id="since">&nbsp;</p>
-    <div class="toggle">
-      <button type="button" class="btn big-btn" id="btn-add" data-t="iWentOut">+ I WENT OUT</button>
-      <button type="button" class="btn undo" id="btn-undo" title="Undo one trip">&minus;</button>
+  <!-- ============ RAIN RADAR (opt-in) ============ -->
+  <section class="card" id="radar-card" hidden>
+    <h2 data-t="radarTitle">Rain, next hour</h2>
+    <p class="rain-say" id="rain-say"></p>
+    <div class="rain-line" id="rain-line"></div>
+    <div class="rain-axis" id="rain-axis"></div>
+    <p class="hint small" id="rain-model" data-t="radarModel" hidden></p>
+    <div class="radar-map" id="radar-map" hidden>
+      <canvas id="radar-canvas" width="640" height="640"></canvas>
+      <img id="radar-img" alt="" hidden>
     </div>
-    <p class="hint small" id="streak-note">&nbsp;</p>
+    <div class="radar-controls" id="radar-controls" hidden>
+      <button type="button" class="btn" id="radar-play" data-t-aria="radarPlay">&#9654;</button>
+      <input type="range" id="radar-slider" min="0" max="12" value="12" aria-label="Radar time">
+      <span class="radar-time" id="radar-time"></span>
+      <button type="button" class="btn radar-zoom" id="radar-out" data-t-aria="radarZoomOut" hidden>&minus;</button>
+      <button type="button" class="btn radar-zoom" id="radar-in" data-t-aria="radarZoomIn" hidden>+</button>
+    </div>
+    <p class="hint small" id="radar-credit"></p>
+    <p class="hint small" id="radar-down" data-t="radarDown" hidden></p>
   </section>
 
   <!-- ============ LOCATION ============ -->
@@ -101,6 +123,8 @@
 <script src="lang.js"></script>
 <script src="blend.js"></script>
 <script src="core.js"></script>
+<script src="radar.js"></script>
+<script src="radar-card.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

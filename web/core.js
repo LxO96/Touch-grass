@@ -30,6 +30,7 @@ const DEFAULTS = {
   sky: Object.assign({}, TG_SKY_DEFAULTS),  // 0 love it .. 4 hate it, per kind
   novelty: true,  // firsts earn a bonus
   aurora: true,   // a likely aurora earns a bonus
+  radar: false,   // the rain radar card on Today
   bar: 60     // the score a moment must beat to count as "good"
 };
 
@@ -66,6 +67,7 @@ function getSettings() {
     for (const k of TG_SKY_ORDER) s.sky[k] = tgSkyRating(raw.sky, k);
     s.novelty = raw.novelty !== false;
     s.aurora = raw.aurora !== false;
+    s.radar = raw.radar === true;
     return s;
   } catch { return freshDefaults(); }
 }
@@ -122,6 +124,16 @@ const isDeepNight = (hr) => tgIsDeepNight(hr);
 
 function scoreHour(h, s) {
   return tgScoreHour(h, s || getSettings());
+}
+
+/* The coming hours, small enough for the widget to keep: when each
+   starts (t, epoch ms), the hour on the clock (h), its score (s) and its
+   sky (c). The widget works out for itself which are still to come, so
+   a forecast fetched a while ago still lines up with the clock. */
+function widgetHours(ahead, s) {
+  return (ahead || []).filter((h) => !isNaN(Date.parse(h.time))).map((h) => ({
+    t: Date.parse(h.time), h: h.hour, s: scoreHour(h, s), c: h.code
+  }));
 }
 
 /* ==========================================================
@@ -312,9 +324,69 @@ function addVisit(key) {
   return setVisits(key, visitsOn(key) + 1);
 }
 
+/* Trips tapped on the widget while the page wasn't running, handed over
+   by the app as {"YYYY-MM-DD": n}, so each lands on the day it was made.
+   An older app hands over a bare count, which can only mean today.
+   Returns how many trips were added. */
+function absorbPending(raw) {
+  let byDay;
+  if (typeof raw === 'number') byDay = { [todayKey()]: raw };
+  else {
+    try { byDay = JSON.parse(raw); } catch { return 0; }
+  }
+  if (!byDay || typeof byDay !== 'object') return 0;
+  let added = 0;
+  for (const [key, n] of Object.entries(byDay)) {
+    const count = Math.floor(Number(n));
+    if (!validKey(key) || !(count > 0)) continue;
+    // addVisit also notes the clock time, which only today's trips have.
+    if (key === todayKey()) { addVisit(key); setVisits(key, visitsOn(key) + count - 1); }
+    else setVisits(key, visitsOn(key) + count);
+    added += count;
+  }
+  return added;
+}
+
 function removeVisit(key) {
   key = key || todayKey();
   return setVisits(key, Math.max(0, visitsOn(key) - 1));
+}
+
+
+/* ----------------------------------------------------------
+   The trip buttons buzz. Each buzz is [ms, strength] pairs,
+   buzz and pause in turn (strength 0 = pause, 255 = full).
+   ---------------------------------------------------------- */
+
+const BUZZ = {
+  // a fanfare, ta-ta-ta TAAA, ta-TAAAA!: you went out today!
+  first: [[50, 150], [40, 0], [50, 150], [40, 0], [50, 150], [40, 0], [200, 230],
+          [90, 0], [60, 180], [40, 0], [340, 255]],
+  // ba-da-DUM, louder each time, for every trip after that
+  again: [[35, 90], [60, 0], [35, 160], [60, 0], [140, 255]],
+  // a step down: strong, then weak
+  undo: [[70, 200], [90, 0], [40, 70]],
+  // womp womp: the day is empty again
+  gone: [[120, 180], [110, 0], [220, 60]],
+};
+
+function buzzFor(before, after) {
+  if (after > before) return before === 0 ? 'first' : 'again';
+  if (after < before) return after === 0 ? 'gone' : 'undo';
+  return null;
+}
+
+function vibratePattern(segs) { return segs.map(([ms]) => ms); }
+
+// The app buzzes natively, with strengths; a browser gets the rhythm only.
+function buzz(name) {
+  const segs = BUZZ[name];
+  if (!segs) return;
+  try {
+    if (typeof TouchGrassAndroid !== 'undefined' && TouchGrassAndroid.buzzPattern) {
+      TouchGrassAndroid.buzzPattern(segs.map(([ms]) => ms).join(','), segs.map(([, a]) => a).join(','));
+    } else if (navigator.vibrate) navigator.vibrate(vibratePattern(segs));
+  } catch {}
 }
 
 
@@ -597,6 +669,23 @@ function syncToAndroid() {
    53% that cost you 29 points — in your language and your units.
    ========================================================== */
 
+/* One hour's forecast, worded like the Right now card: what the bar
+   you tapped is made of, before the sum of what it cost. */
+function hourStats(h) {
+  const u = getUnits();
+  const L = T().ui;
+  const mm = tgNum(h.precip, 0);
+  let rain = L.chanceOf(Math.round(tgNum(h.pop, 0)));
+  if (mm >= 0.05) rain += ' · ' + L.mm(Math.round(mm * 10) / 10);
+  return [
+    { k: L.statSky, v: skyName(h.code) },
+    { k: L.statTemp, v: fmtTemp(tgNum(h.temp, tgNum(h.feels, 16)), u) },
+    { k: L.statFeels, v: fmtTemp(tgNum(h.feels, 16), u) },
+    { k: L.statWind, v: fmtWind(tgNum(h.wind, 0), u) },
+    { k: L.statRain, v: rain }
+  ];
+}
+
 function factorFact(key, h) {
   const u = getUnits();
   switch (key) {
@@ -816,17 +905,57 @@ if (typeof TouchGrassAndroid !== 'undefined') restoreFromApp(TouchGrassAndroid);
    at the top, so the pages keep their name at rest and give the
    screen back once you are reading. Pages only — the test runner
    has no real document.
+
+   The full header is shown once: on the first page you see after
+   the app opens, until you scroll past it. After that the header is
+   compact for the session, on every page: a smaller title and no
+   subtitle.
    ========================================================== */
+
+const HEADER_SEEN = 'touchgrass.headerSeen';
+
+/* True for the first page of a session, and marks it seen. Without
+   session storage the full header just shows, as it always did. */
+function fullHeaderOnOpen(store) {
+  try {
+    if (!store || store.getItem(HEADER_SEEN)) return !store;
+    store.setItem(HEADER_SEEN, '1');
+    return true;
+  } catch {
+    return true;
+  }
+}
 
 (function collapseHeader() {
   if (typeof window === 'undefined' || typeof document.querySelector !== 'function') return;
   const title = document.querySelector('h1');
   if (!title) return;
+  const sub = title.querySelector('small');
+  let session = null;
+  try { session = window.sessionStorage; } catch { /* blocked */ }
+  let full = fullHeaderOnOpen(session);
+  if (!full) title.classList.add('compact');
+
+  /* Once the header is off the top of the screen it turns compact for
+     good. The browser keeps what you are reading where it is (scroll
+     anchoring); moving the page as well made it jump by the height
+     taken out. Only a WebView without anchoring needs a hand, so the
+     page is moved by however far the first card actually shifted. */
+  const firstCard = document.querySelector('.card');
+  const tuck = () => {
+    const before = firstCard ? firstCard.getBoundingClientRect().top : 0;
+    title.classList.add('compact');
+    full = false;
+    const shifted = firstCard ? firstCard.getBoundingClientRect().top - before : 0;
+    if (Math.abs(shifted) > 1) window.scrollBy(0, shifted);
+  };
+
   let queued = false;
   const paint = () => {
     queued = false;
+    if (full && title.getBoundingClientRect().bottom < 0) tuck();
     const h = title.offsetHeight || 1;
-    const y = window.scrollY || 0;
+    const y = window.scrollY || 0;      // after any tuck has moved it
     title.style.opacity = String(Math.max(0, 1 - y / (h * 0.8)));
     // Solid just before the tabs pin, never after content has reached them.
     document.body.classList.toggle('scrolled', y > h * 0.75);

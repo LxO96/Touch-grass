@@ -253,6 +253,8 @@ function paintNovelty() {
   if (box) box.checked = SETTINGS.novelty !== false;
   const aur = $('aurora');
   if (aur) aur.checked = SETTINGS.aurora !== false;
+  const rad = $('radar');
+  if (rad) rad.checked = SETTINGS.radar === true;
 }
 
 if ($('aurora')) {
@@ -260,6 +262,13 @@ if ($('aurora')) {
     SETTINGS.aurora = $('aurora').checked;
     saveSettings(SETTINGS);
     renderPreview();
+  });
+}
+
+if ($('radar')) {
+  $('radar').addEventListener('change', () => {
+    SETTINGS.radar = $('radar').checked;
+    saveSettings(SETTINGS);
   });
 }
 

@@ -7,11 +7,16 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
+import android.text.SpannableString
+import android.text.Spanned
+import android.text.style.RelativeSizeSpan
 import android.util.Log
+import android.view.View
 import android.widget.RemoteViews
 import org.json.JSONObject
 import java.util.Calendar
 import java.util.Locale
+import java.util.TimeZone
 import kotlin.math.roundToInt
 
 /**
@@ -23,8 +28,9 @@ import kotlin.math.roundToInt
  * contradict the app. Only the wording is its own, because a widget has
  * room for four words and the page has room for a paragraph.
  *
- * It grows with the space it is given: readings always, a log button once
- * there is room for one, and the recent weeks once there is room for those.
+ * It grows with the space it is given: readings and a log button always
+ * (a small + at one row, a full button from two), and the rest of the
+ * day hour by hour from two rows up: four hours, then six.
  */
 class Widget : AppWidgetProvider() {
 
@@ -53,7 +59,9 @@ class Widget : AppWidgetProvider() {
         if (intent.action == ACTION_LOG) {
             // The page owns the log and it isn't running, so note the trip
             // here and let the page fold it in the next time it opens.
+            val before = Prefs.visitsOn(c, todayKey()) + Prefs.pendingVisits(c)
             Prefs.addPendingVisit(c)
+            Buzz.play(c, Buzz.forTrip(before), background = true)
             refreshAll(c)
             return
         }
@@ -90,14 +98,20 @@ class Widget : AppWidgetProvider() {
                heatmap and was mostly empty space. */
             val portrait = c.resources.configuration.orientation !=
                 android.content.res.Configuration.ORIENTATION_LANDSCAPE
-            val heightDp = try {
-                mgr.getAppWidgetOptions(id)?.getInt(
-                    if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT
-                    else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT, 0
-                ) ?: 0
+            // And the widths the other way round: MIN_WIDTH in portrait.
+            fun option(key: String) = try {
+                mgr.getAppWidgetOptions(id)?.getInt(key, 0) ?: 0
             } catch (_: Exception) {
                 0
             }
+            val heightDp = option(
+                if (portrait) AppWidgetManager.OPTION_APPWIDGET_MAX_HEIGHT
+                else AppWidgetManager.OPTION_APPWIDGET_MIN_HEIGHT
+            )
+            val widthDp = option(
+                if (portrait) AppWidgetManager.OPTION_APPWIDGET_MIN_WIDTH
+                else AppWidgetManager.OPTION_APPWIDGET_MAX_WIDTH
+            )
 
             val layout = when {
                 heightDp >= LARGE_AT -> R.layout.widget_large
@@ -116,24 +130,29 @@ class Widget : AppWidgetProvider() {
                 if (cached == null) s.tapToLog else s.line(cached.state, cached.targetLabel)
             )
 
+            // The count lives on the button you press to raise it; this
+            // line is left for where the score is for.
             val visitLine = if (visits > 0) s.beenOut(visits) else s.notOut
             val place = cached?.place.orEmpty()
-            v.setTextViewText(
-                R.id.w_visits,
-                if (place.isBlank()) visitLine else "$visitLine  ·  $place"
-            )
+            v.setTextViewText(R.id.w_visits, place.ifBlank { visitLine })
 
             v.removeAllViews(R.id.w_readings)
-            if (cached != null) addReadings(c, v, cached, s)
+            if (cached != null) addReadings(
+                c, v, cached, s,
+                // One row shares its width with the score and the + button.
+                budgetDp = if (layout == R.layout.widget) ReadingsFit.budget(widthDp) else null
+            )
+
+            v.setTextViewText(
+                R.id.w_log,
+                if (layout == R.layout.widget) smallLog(visits) else s.logButton(visits)
+            )
+            v.setOnClickPendingIntent(R.id.w_log, logIntent(c))
 
             if (layout != R.layout.widget) {
-                v.setTextViewText(R.id.w_log, s.logATrip)
-                v.setOnClickPendingIntent(R.id.w_log, logIntent(c))
-            }
-
-            if (layout == R.layout.widget_large) {
-                v.removeAllViews(R.id.w_cal)
-                addRecentWeeks(c, v)
+                v.removeAllViews(R.id.w_hours)
+                val shown = addHours(c, v, cached, if (layout == R.layout.widget_large) 6 else 4)
+                v.setViewVisibility(R.id.w_hours, if (shown) View.VISIBLE else View.GONE)
             }
 
             // Tapping anywhere else opens the app.
@@ -180,20 +199,26 @@ class Widget : AppWidgetProvider() {
             c: Context,
             v: RemoteViews,
             w: WidgetState,
-            s: WidgetStrings
+            s: WidgetStrings,
+            budgetDp: Int? = null
         ) {
-            fun chip(icon: Int, text: String) {
+            val chips = ArrayList<Pair<Int, String>>()
+            chips.add(skyIcon(w.code) to s.skyWord(w.code))
+            if (w.tempC != null) chips.add(R.drawable.ic_temp to temp(c, w.tempC) + arrow(w.tempDir))
+            if (w.windKmh != null) chips.add(R.drawable.ic_wind to wind(c, w.windKmh) + arrow(w.windDir))
+            if (w.pop != null) chips.add(R.drawable.ic_rain to "${w.pop}%" + arrow(w.rainDir))
+            if (w.sunsetMinutes != null) chips.add(R.drawable.ic_sun to clock(w.sunsetMinutes))
+
+            // As many as fit, in order, rather than the last one cut short.
+            val fit = ReadingsFit.fit(chips.map { it.second }, budgetDp)
+            chips.take(fit.count).forEachIndexed { i, (icon, text) ->
+                val shown = if (i == 0 && !fit.skyWord) "" else text
                 val r = RemoteViews(c.packageName, R.layout.widget_readings)
                 r.setImageViewResource(R.id.r_icon, icon)
-                r.setTextViewText(R.id.r_value, text)
+                r.setTextViewText(R.id.r_value, shown)
+                if (shown.isEmpty()) r.setViewVisibility(R.id.r_value, View.GONE)
                 v.addView(R.id.w_readings, r)
             }
-
-            chip(skyIcon(w.code), s.skyWord(w.code))
-            if (w.tempC != null) chip(R.drawable.ic_temp, temp(c, w.tempC) + arrow(w.tempDir))
-            if (w.windKmh != null) chip(R.drawable.ic_wind, wind(c, w.windKmh) + arrow(w.windDir))
-            if (w.pop != null) chip(R.drawable.ic_rain, "${w.pop}%" + arrow(w.rainDir))
-            if (w.sunsetMinutes != null) chip(R.drawable.ic_sun, clock(w.sunsetMinutes))
         }
 
         /** Only mark a reading that is actually moving. */
@@ -228,38 +253,45 @@ class Widget : AppWidgetProvider() {
             else -> R.drawable.ic_w_cloud
         }
 
-        /** The last five weeks, Monday-first, as a small heatmap. */
-        private fun addRecentWeeks(c: Context, v: RemoteViews) {
-            val log = Prefs.logSnapshot(c)
-            val cursor = Calendar.getInstance()
-            // Wind back to this week's Monday, then back four more weeks.
-            val backToMonday = (cursor.get(Calendar.DAY_OF_WEEK) + 5) % 7
-            cursor.add(Calendar.DAY_OF_MONTH, -backToMonday - 28)
-
-            val todayK = todayKey()
-            repeat(5) {
-                val row = RemoteViews(c.packageName, R.layout.widget_cal_row)
-                repeat(7) {
-                    val key = keyOf(cursor)
-                    val n = log[key] ?: 0
-                    val cell = RemoteViews(c.packageName, R.layout.widget_cal_cell)
-                    // Today gets an outline, but keeps its shade — otherwise
-                    // the one day you care most about hides its own count.
-                    val today = key == todayK
-                    cell.setInt(
-                        R.id.cell, "setBackgroundResource",
-                        when {
-                            n >= 3 -> if (today) R.drawable.day_today_lv3 else R.drawable.day_lv3
-                            n == 2 -> if (today) R.drawable.day_today_lv2 else R.drawable.day_lv2
-                            n == 1 -> if (today) R.drawable.day_today_lv1 else R.drawable.day_lv1
-                            else -> if (today) R.drawable.day_today else R.drawable.day_lv0
-                        }
-                    )
-                    row.addView(R.id.cal_row, cell)
-                    cursor.add(Calendar.DAY_OF_MONTH, 1)
-                }
-                v.addView(R.id.w_cal, row)
+        /** The "+" on the small widget, with today's count under it once there is one. */
+        private fun smallLog(visits: Int): CharSequence {
+            if (visits <= 0) return "+"
+            val n = visits.toString()
+            return SpannableString("+\n$n").apply {
+                setSpan(RelativeSizeSpan(0.55f), 2, 2 + n.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
             }
+        }
+
+        /**
+         * The rest of the day, hour by hour: green at or over your bar,
+         * pale green in between, a darker shade of the yellow when poor.
+         * The best of them gets an outline. False when there is nothing
+         * left to show, late at night or before the first forecast.
+         */
+        private fun addHours(c: Context, v: RemoteViews, w: WidgetState?, max: Int): Boolean {
+            val hours = WidgetHours.restOfDay(
+                w?.hours.orEmpty(), System.currentTimeMillis(), TimeZone.getDefault(), max
+            )
+            if (hours.isEmpty()) return false
+            val bar = Prefs.dials(c).bar
+            val best = WidgetHours.best(hours)
+            hours.forEachIndexed { i, h ->
+                val cell = RemoteViews(c.packageName, R.layout.widget_hour)
+                val top = i == best
+                cell.setInt(
+                    R.id.hour_cell, "setBackgroundResource",
+                    when {
+                        h.score >= bar -> if (top) R.drawable.hour_good_best else R.drawable.hour_good
+                        h.score >= 35 -> if (top) R.drawable.hour_meh_best else R.drawable.hour_meh
+                        else -> if (top) R.drawable.hour_bad_best else R.drawable.hour_bad
+                    }
+                )
+                cell.setTextViewText(R.id.hour_time, String.format(Locale.US, "%02d", h.hour))
+                cell.setImageViewResource(R.id.hour_icon, skyIcon(h.code))
+                cell.setTextViewText(R.id.hour_score, h.score.toString())
+                v.addView(R.id.w_hours, cell)
+            }
+            return true
         }
 
         private fun openIntent(c: Context): PendingIntent {
@@ -295,13 +327,16 @@ class Widget : AppWidgetProvider() {
 class WidgetStrings(
     val tapToLog: String,
     val notOut: String,
-    val logATrip: String,
+    private val logATrip: String,
     private val beenOutOnce: String,
     private val beenOutMany: (Int) -> String,
     private val lines: Map<String, (String?) -> String>,
     private val sky: Map<String, String>
 ) {
     fun beenOut(n: Int) = if (n == 1) beenOutOnce else beenOutMany(n)
+
+    /** The log button, carrying today's count once there is one. */
+    fun logButton(visits: Int) = if (visits > 0) "$logATrip  ·  $visits" else logATrip
 
     fun line(state: String, target: String?): String =
         (lines[state] ?: lines["anyways"]!!)(target)
@@ -393,7 +428,9 @@ data class WidgetState(
     val tempC: Double? = null,
     val windKmh: Double? = null,
     val pop: Int? = null,
-    val sunsetMinutes: Int? = null
+    val sunsetMinutes: Int? = null,
+    /** The next twelve hours as they stood; see WidgetHours. */
+    val hours: List<HourCell> = emptyList()
 ) {
     fun toJson(): String = JSONObject()
         .put("score", score)
@@ -410,6 +447,7 @@ data class WidgetState(
         .put("windKmh", windKmh ?: JSONObject.NULL)
         .put("pop", pop ?: JSONObject.NULL)
         .put("sunset", sunsetMinutes ?: JSONObject.NULL)
+        .put("hours", WidgetHours.toJson(hours))
         .toString()
 
     companion object {
@@ -429,7 +467,8 @@ data class WidgetState(
                 tempC = o.num("tempC"),
                 windKmh = o.num("windKmh"),
                 pop = o.num("pop")?.toInt(),
-                sunsetMinutes = o.num("sunset")?.toInt()
+                sunsetMinutes = o.num("sunset")?.toInt(),
+                hours = WidgetHours.fromJson(o.optJSONArray("hours"))
             )
         } catch (_: Exception) {
             null

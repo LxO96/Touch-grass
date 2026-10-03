@@ -22,8 +22,8 @@ android {
         applicationId = "toys.touchgrass"
         minSdk = 24
         targetSdk = 37
-        versionCode = 3
-        versionName = "0.3"
+        versionCode = 4
+        versionName = "0.4"
     }
 
     /* The release key. Kept outside the repository — a keystore in a
@@ -102,6 +102,7 @@ val webAppFiles = listOf(
     // scoring.js is not just a page asset: the background worker evaluates
     // it directly, so it must be in the APK.
     "scoring.js", "blend.js", "lang.js", "core.js", "app.js", "settings.js",
+    "radar.js", "radar-card.js",
     "calendar.html", "record.js"
 )
 

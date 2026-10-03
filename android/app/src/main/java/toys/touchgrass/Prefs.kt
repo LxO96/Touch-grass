@@ -122,40 +122,29 @@ object Prefs {
 
     fun placeLabel(c: Context) = sp(c).getString("placeLabel", "") ?: ""
 
-    /** The day-count log, as the page last left it. */
-    fun logSnapshot(c: Context): Map<String, Int> {
-        val raw = sp(c).getString("log", null) ?: return emptyMap()
-        return try {
-            val o = org.json.JSONObject(raw)
-            val out = HashMap<String, Int>()
-            for (k in o.keys()) out[k] = o.optInt(k, 0)
-            out
-        } catch (_: Exception) {
-            emptyMap()
-        }
-    }
-
     /* ---- trips logged from the widget, while the page wasn't running ---- */
 
-    fun addPendingVisit(c: Context) {
-        val day = sp(c).getString("pendingDay", "")
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            .format(java.util.Date())
-        // A pending trip belongs to the day it was made, not to whenever the
-        // page finally opens.
-        val n = if (day == today) sp(c).getInt("pending", 0) else 0
-        sp(c).edit().putString("pendingDay", today).putInt("pending", n + 1).apply()
+    private fun today() =
+        java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())
+
+    /** {"YYYY-MM-DD": n}; see PendingTrips. Reads the old one-day count once. */
+    fun pendingByDay(c: Context): String {
+        val p = sp(c)
+        p.getString("pendingByDay", null)?.let { return it }
+        return PendingTrips.fromLegacy(p.getString("pendingDay", ""), p.getInt("pending", 0))
     }
 
-    fun pendingVisits(c: Context): Int {
-        val day = sp(c).getString("pendingDay", "")
-        val today = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US)
-            .format(java.util.Date())
-        return if (day == today) sp(c).getInt("pending", 0) else 0
+    fun addPendingVisit(c: Context) {
+        val raw = PendingTrips.add(pendingByDay(c), today())
+        sp(c).edit().putString("pendingByDay", raw)
+            .remove("pending").remove("pendingDay").apply()
     }
+
+    fun pendingVisits(c: Context, day: String = today()): Int =
+        PendingTrips.on(pendingByDay(c), day)
 
     fun clearPendingVisits(c: Context) {
-        sp(c).edit().putInt("pending", 0).apply()
+        sp(c).edit().remove("pendingByDay").remove("pending").remove("pendingDay").apply()
     }
 
     fun unitTemp(c: Context) = sp(c).getString("unitTemp", "c") ?: "c"

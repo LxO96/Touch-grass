@@ -15,7 +15,7 @@
 </p>
 
 <p align="center">
-  <img src="docs/today.png" width="260" alt="Today: GO OUTSIDE, 84/100, clear and 29°">
+  <img src="docs/today.png" width="260" alt="Today: GO OUTSIDE, 81/100, clear and 30°, with today's trips right under the verdict">
   <img src="docs/hour.png" width="260" alt="The next twelve hours, with one hour's score explained">
   <img src="docs/year.png" width="260" alt="The year: every day you got out, months across, days down">
 </p>
@@ -43,17 +43,26 @@ even then it points you at the safest hour instead of giving up on the day.
 - **The aurora.** When the northern lights are likely where you are and the sky is
   clear and dark enough to see them, the hour gets a bonus, and it can send
   you an alert.
+- **Rain radar**, if you want it: the next hour's rain five minutes at a time, and
+  the last hour of radar around you, from SMHI in Sweden and MET in Norway.
 - **A year of squares.** Every day you got out, with streaks. Press and hold a
   day to fix it.
+- **A fanfare when you go out.** Logging the first trip of the day buzzes a
+  little fanfare, in the app and on the widget.
 - **Reminders** at a set time or before sunset, and an alert when a genuinely
   good window opens.
-- **A home-screen widget** that grows with the space you give it.
+- **A home-screen widget** with the rest of the day hour by hour, and a
+  one-tap **+** to log a trip without opening the app.
 - **English and Swedish**, °C or °F, km/h, m/s or mph.
 
 <p align="center">
   <img src="docs/weather.png" width="260" alt="Kinds of weather, sorted into bands from love it to hate it">
+  <img src="docs/radar.png" width="260" alt="Rain radar: raining for the next 85 minutes, five-minute bars, and the radar map around you">
   <img src="docs/month.png" width="260" alt="A month of days out, swipe for the next">
-  <img src="docs/widget.png" width="330" alt="The widget: score, readings, recent weeks and a log button">
+</p>
+
+<p align="center">
+  <img src="docs/widget.png" width="360" alt="The widget: score, readings, the rest of today hour by hour with the best hour outlined, and a log button">
 </p>
 
 ## Your data stays on your phone
@@ -98,5 +107,8 @@ them.
 
 Forecasts are blended from [MET Norway](https://www.met.no/) (NLOD / CC BY 4.0),
 [SMHI](https://www.smhi.se/) (CC BY 4.0) and [Open-Meteo](https://open-meteo.com/)
-(CC BY 4.0). Aurora data comes from [NOAA SWPC](https://www.swpc.noaa.gov/).
+(CC BY 4.0). Radar comes from SMHI and MET Norway, and its map from
+[OpenFreeMap](https://openfreemap.org/) © [OpenMapTiles](https://www.openmaptiles.org/),
+data © [OpenStreetMap](https://www.openstreetmap.org/copyright) contributors.
+Aurora data comes from [NOAA SWPC](https://www.swpc.noaa.gov/).
 The look is a homage to [optical.toys](https://optical.toys/).

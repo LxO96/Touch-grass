@@ -51,6 +51,11 @@ h1 small {
   letter-spacing: 2px;
 }
 
+/* Once you have scrolled past it, for the rest of the session; see
+   collapseHeader in core.js. */
+h1.compact { font-size: 44px; margin-bottom: 18px; }
+h1.compact small { display: none; }
+
 h2 {
   font-size: 32px;
   margin-bottom: 4px;
@@ -315,6 +320,14 @@ h2 {
   margin: 0 0 8px;
 }
 
+.hour-stats { margin-bottom: 14px; }
+
+.why-sub {
+  font-family: var(--fontA);
+  font-size: 20px;
+  margin: 0 0 4px;
+}
+
 .why-rows { display: flex; flex-direction: column; }
 
 .why-row {
@@ -420,6 +433,7 @@ footer {
 
 @media screen and (max-width: 640px) {
   h1 { font-size: 50px; }
+  h1.compact { font-size: 34px; }
   .big { font-size: 42px; }
   .sub { font-size: 21px; }
   .row { flex-direction: column; gap: 0; }
@@ -1084,3 +1098,38 @@ h2.spaced { margin-top: 26px; }
 .day-count { font-size: 64px; min-width: 1.4ch; line-height: 1; }
 .day-words { margin: 8px 0 2px; font-size: 20px; }
 .day-dialog .big-btn { margin-top: 12px; width: 100%; }
+
+/* ---------- rain radar ---------- */
+
+.rain-say { font-size: 20px; margin: 4px 0 12px; }
+
+.rain-line {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 60px;
+  border-bottom: 3px solid var(--ink);
+}
+
+/* The same greens and yellow as the rain on the map. */
+.rain-bar { flex: 1 1 0; min-width: 0; border: 2px solid var(--ink); border-bottom: 0; }
+.rain-bar.lv0 { border: 0; }
+.rain-bar.lv1 { background: #cfe6bd; }
+.rain-bar.lv2 { background: var(--grass); }
+.rain-bar.lv3 { background: var(--sun); }
+
+.rain-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 15px;
+  margin-top: 2px;
+}
+
+.radar-map { margin-top: 14px; border: 3px solid var(--ink); line-height: 0; }
+.radar-map canvas, .radar-map img { display: block; width: 100%; height: auto; }
+
+.radar-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
+.radar-controls input[type=range] { flex: 1; accent-color: var(--ink); }
+.radar-time { font-size: 18px; min-width: 3.5em; text-align: right; }
+.radar-zoom { min-width: 2.4em; }
+.radar-zoom:disabled { opacity: 0.35; }

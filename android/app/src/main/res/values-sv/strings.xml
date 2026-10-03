@@ -2,4 +2,5 @@
 <resources>
     <string name="widget_name">Touch Grass</string>
     <string name="widget_description">Dagens poäng, och vad du bör göra åt det.</string>
+    <string name="widget_log">Jag var ute</string>
 </resources>

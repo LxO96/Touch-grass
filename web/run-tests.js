@@ -65,7 +65,7 @@ const sandbox = {
   window: { matchMedia: () => ({ matches: false }), addEventListener() {} },
   Math, Date, JSON, isFinite, isNaN, parseInt, parseFloat,
   Number, String, Object, Array, Error, RegExp, Boolean,
-  Set, Map, encodeURIComponent, decodeURIComponent
+  Set, Map, encodeURIComponent, decodeURIComponent, TextEncoder, TextDecoder
 };
 sandbox.window.localStorage = localStorage;
 sandbox.globalThis = sandbox;

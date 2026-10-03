@@ -24,6 +24,7 @@ window.addEventListener('error', (e) => {
 <script src="met-legend.js"></script>
 <script src="lang.js"></script>
 <script src="core.js"></script>
+<script src="radar.js"></script>
 <script>
 /* ================= harness ================= */
 
@@ -2389,6 +2390,440 @@ check('the restore summary reads right', [
   T().ui.restoreWhat(null, 1, 0)
 ].join(' | '), 'A copy from 12 Sep 2026 with 143 days logged. 5 days have more trips than here. | ' +
   'A copy with 1 day logged. Nothing in it is new to this phone.');
+
+/* ---------- trips logged on the widget, folded in when the page opens ---------- */
+
+check('widget trips land on the day they were tapped', (() => {
+  bkClear();
+  const added = absorbPending(JSON.stringify({ '2026-09-30': 1, [todayKey()]: 2 }));
+  return added + ':' + getLog()['2026-09-30'] + ':' + getLog()[todayKey()];
+})(), '3:1:2');
+
+check('widget trips add to what the day already had', (() => {
+  bkClear();
+  setVisits('2026-09-30', 2);
+  absorbPending(JSON.stringify({ '2026-09-30': 1 }));
+  return getLog()['2026-09-30'];
+})(), 3);
+
+check('an older app that hands over a plain count still counts for today', (() => {
+  bkClear();
+  return absorbPending(2) + ':' + getLog()[todayKey()];
+})(), '2:2');
+
+check('widget trips that make no sense are ignored', (() => {
+  bkClear();
+  return [absorbPending(''), absorbPending('{broken'), absorbPending(null), absorbPending(0),
+    absorbPending(JSON.stringify({ 'nonsense': 3, '2026-02-30': 1, '2026-09-30': -2 }))].join(',') +
+    ':' + Object.keys(getLog()).length;
+})(), '0,0,0,0,0:0');
+
+/* ---------- the coming hours, handed to the widget ---------- */
+
+check('the widget is handed every coming hour, scored as the page scores it', (() => {
+  const s = getSettings();
+  const ahead = [
+    { time: '2026-10-02T12:00Z', hour: 14, feels: 18, temp: 18, pop: 0, precip: 0, wind: 5, isDay: true, code: 0 },
+    { time: '2026-10-02T13:00Z', hour: 15, feels: 9, temp: 10, pop: 90, precip: 3, wind: 30, isDay: true, code: 63 }
+  ];
+  const out = widgetHours(ahead, s);
+  return out.length === 2 &&
+    out[0].t === Date.UTC(2026, 9, 2, 12) && out[0].h === 14 && out[0].c === 0 && out[0].s === scoreHour(ahead[0], s) &&
+    out[1].t === Date.UTC(2026, 9, 2, 13) && out[1].h === 15 && out[1].c === 63 && out[1].s === scoreHour(ahead[1], s) &&
+    out[0].s > out[1].s;
+})(), true);
+
+check('an hour without a time is left out rather than guessed',
+  widgetHours([{ hour: 14, feels: 18, pop: 0, precip: 0, wind: 5, isDay: true, code: 0 }], getSettings()).length, 0);
+
+check('no forecast hands the widget no hours', widgetHours(null, getSettings()).length, 0);
+
+/* ---------- one hour's forecast, when you tap its bar ---------- */
+
+const HOUR_15 = { hour: 15, feels: 12.4, temp: 14.2, pop: 20, precip: 0.43, wind: 18, isDay: true, code: 2 };
+const statsText = (h) => hourStats(h).map((r) => r.k + '=' + r.v).join(' | ');
+
+check('an hour reads like the Right now card', (() => {
+  localStorage.setItem('touchgrass.units', JSON.stringify({ temp: 'c', wind: 'kmh' }));
+  return statsText(HOUR_15);
+})(), 'Sky=' + skyName(2) + ' | Temp=14°C | Feels=12°C | Wind=18 km/h | Rain=20% chance · 0.4 mm');
+
+check('a dry hour leaves out the millimetres',
+  statsText(Object.assign({}, HOUR_15, { pop: 5, precip: 0 })).split(' | ').pop(), 'Rain=5% chance');
+
+check('an hour follows the unit settings', (() => {
+  localStorage.setItem('touchgrass.units', JSON.stringify({ temp: 'f', wind: 'mph' }));
+  const out = statsText(HOUR_15);
+  localStorage.setItem('touchgrass.units', JSON.stringify({ temp: 'c', wind: 'kmh' }));
+  return out.includes('Temp=58°F') && out.includes('Wind=11 mph');
+})(), true);
+
+check('an hour speaks Swedish too', (() => {
+  localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+  const out = statsText(HOUR_15);
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return out.includes('Känns som=12°C') && out.endsWith('Regn=20% risk · 0,4 mm');
+})(), true);
+
+check('the why heading exists in both languages', (() => {
+  const en = T().ui.whyScore(72);
+  localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+  const sv = T().ui.whyScore(72);
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return en + ' / ' + sv;
+})(), 'Why 72 / Varför 72');
+
+/* ---------- the full header: once, when the app opens ---------- */
+
+const fakeSession = () => {
+  const m = new Map();
+  return { getItem: (k) => (m.has(k) ? m.get(k) : null), setItem: (k, v) => m.set(k, String(v)) };
+};
+
+check('the first page of a session gets the full header, later pages the compact one', (() => {
+  const s = fakeSession();
+  return [fullHeaderOnOpen(s), fullHeaderOnOpen(s), fullHeaderOnOpen(s)].join(',');
+})(), 'true,false,false');
+
+check('without session storage the full header just shows', (() => {
+  const broken = { getItem: () => { throw new Error('blocked'); }, setItem: () => { throw new Error('blocked'); } };
+  return [fullHeaderOnOpen(broken), fullHeaderOnOpen(null)].join(',');
+})(), 'true,true');
+
+/* ---------- the rain radar: where you are on SMHI's picture ---------- */
+
+check('Stockholm in SWEREF 99 TM', (() => {
+  const p = sweref99(59.3293, 18.0686);
+  return near(p.e, 674571.9, 1) && near(p.n, 6580743.0, 1);
+})(), true);
+
+check('Kiruna in SWEREF 99 TM, far north and east of the central meridian', (() => {
+  const p = sweref99(67.8558, 20.2253);
+  return near(p.e, 719583.1, 1) && near(p.n, 7536070.0, 1);
+})(), true);
+
+check('Stockholm lands on its pixel of the composite', (() => {
+  const p = smhiPixel(59.3293, 18.0686);
+  return near(p.x, 271.93, 0.05) && near(p.y, 590.84, 0.05);
+})(), true);
+
+check('the radar source: SMHI for Stockholm, MET for Bergen, none for London', [
+  radarSource(59.3293, 18.0686).kind,
+  radarSource(60.3913, 5.3221).kind + ':' + radarSource(60.3913, 5.3221).area,
+  radarSource(51.5072, -0.1276)
+].join(','), 'smhi,met:western_norway,');
+
+check('MET areas: Tromsø, Trondheim, and Helsinki falls back to the Nordic picture',
+  [metArea(69.6492, 18.9553), metArea(63.4305, 10.3951),
+   metArea(60.1699, 24.9384), metArea(51.5, -0.13)].join(','),
+  'troms,central_norway,nordic,');
+
+check("outside the radars' reach is the faint veil; inside is clear or rain", (() => {
+  // A 3×1 picture: dry and covered, the veil, green rain.
+  const d = new Uint8ClampedArray([0, 0, 0, 0,  0, 0, 0, 15,  0, 178, 0, 255]);
+  return [smhiCovered(d, 3, 0, 0), smhiCovered(d, 3, 1, 0),
+          smhiCovered(d, 3, 2, 0), smhiCovered(d, 3, 7, 0)].join(',');
+})(), 'true,false,true,false');
+
+check('the SMHI logo is wiped, the rain kept', (() => {
+  const w = 200, d = new Uint8ClampedArray(w * 100 * 4);
+  const px = (x, y) => (y * w + x) * 4;
+  d.set([0, 0, 0, 255], px(30, 30));     // logo
+  d.set([0, 178, 0, 255], px(150, 30));  // rain beside it
+  d.set([0, 178, 0, 255], px(30, 80));   // rain below it
+  cleanSmhi(d, w);
+  return [d[px(30, 30) + 3], d[px(150, 30) + 3], d[px(30, 80) + 3]].join(',');
+})(), '0,255,255');
+
+/* ---------- the rain radar: the map around you ---------- */
+
+check('Web Mercator round trip', (() => {
+  const w = toWorld(59.3293, 18.0686, 8), b = fromWorld(w.x, w.y, 8);
+  return near(b.lat, 59.3293, 1e-9) && near(b.lon, 18.0686, 1e-9);
+})(), true);
+
+check('the map is centred on you', (() => {
+  const v = mapView(59.3293, 18.0686, 8, 320), c = toWorld(59.3293, 18.0686, 8);
+  return near(v.x0 + 160, c.x, 1e-9) && near(v.y0 + 160, c.y, 1e-9) && v.z === 8 && v.size === 320;
+})(), true);
+
+check('the tiles cover the whole map and nothing more', [8, 6].map((tz) => {
+  const v = mapView(59.3293, 18.0686, 8, 320), ts = tilesFor(v, tz), k = 256 * 2 ** (8 - tz);
+  const covers = Math.min(...ts.map((t) => t.dx)) <= 0 && Math.min(...ts.map((t) => t.dy)) <= 0
+    && Math.max(...ts.map((t) => t.dx + k)) >= 320 && Math.max(...ts.map((t) => t.dy + k)) >= 320;
+  const noneWasted = ts.every((t) => t.dx < 320 && t.dx + k > 0 && t.dy < 320 && t.dy + k > 0);
+  return covers && noneWasted && ts.every((t) => t.z === tz && t.size === k) && ts.length <= 9;
+}).join(','), 'true,true');
+
+check('the tiles default to the map zoom', tilesFor(mapView(59.3293, 18.0686, 8, 320))[0].size, 256);
+
+// CARTO now wants a key and OSM's pictures bury Stockholm's water under
+// roads and names; OpenFreeMap serves just the shapes, free, no key.
+check('the map comes from OpenFreeMap', [VECTOR_TILES,
+  vectorTileUrl('https://t.example/p/{z}/{x}/{y}.pbf', 7, 70, 37)].join(' '),
+  'https://tiles.openfreemap.org/planet https://t.example/p/7/70/37.pbf');
+
+check('the water is read out of a vector tile, and nothing else', (() => {
+  const vi = (n) => { const o = []; while (n > 127) { o.push((n & 127) | 128); n = Math.floor(n / 128); } o.push(n); return o; };
+  const zz = (n) => (n << 1) ^ (n >> 31);
+  const field = (f, bytes) => [...vi(f * 8 + 2), ...vi(bytes.length), ...bytes];
+  const num = (f, n) => [...vi(f * 8), ...vi(n)];
+  const packed = (f, ns) => field(f, ns.flatMap(vi));
+  const square = [9, zz(10), zz(20), 26, zz(100), 0, 0, zz(100), zz(-100), 0, 15];
+  const feature = (type, geom) => field(2, [...num(3, type), ...packed(4, geom)]);
+  const layer = (name, feats) => field(3, [...num(15, 2), ...field(1, [...new TextEncoder().encode(name)]),
+    ...feats.flat(), ...num(5, 4096)]);
+  const buf = new Uint8Array([
+    ...layer('transportation', [feature(3, square)]),
+    ...layer('water', [feature(2, [9, 0, 0, 10, 2, 2]), feature(3, square)])]);
+  return JSON.stringify(mvtWater(buf));
+})(), '[{"extent":4096,"rings":[[[10,20],[110,20],[110,120],[10,120]]]}]');
+
+const cellAt = (cells, x, y) => cells.find((q) => x >= q.l && x < q.r && y >= q.t && y < q.b);
+
+check('the cells tile the map exactly', (() => {
+  const cells = smhiCells(mapView(59.3293, 18.0686, 8, 320));
+  const area = cells.reduce((sum, q) => sum + (q.r - q.l) * (q.b - q.t), 0);
+  return cells.length + ' ' + area;
+})(), '16 102400');
+
+check('the radar lines up under you', (() => {
+  const v = mapView(59.3293, 18.0686, 8, 320), cells = smhiCells(v);
+  const s = smhiPixel(59.3293, 18.0686), c = applyAffine(cellAt(cells, 160, 160).m, s.x, s.y);
+  return near(c.x, 160, 0.2) && near(c.y, 160, 0.2);
+})(), true);
+
+check('and everywhere on the map it is within a quarter pixel, Malmö to Kiruna', [
+  [59.3293, 18.0686], [67.8558, 20.2253], [55.6050, 13.0038]
+].every(([lat, lon]) => {
+  const v = mapView(lat, lon, 8, 320), cells = smhiCells(v);
+  for (let cy = 0; cy < 320; cy += 8) {
+    for (let cx = 0; cx < 320; cx += 8) {
+      const g = fromWorld(v.x0 + cx, v.y0 + cy, 8), s = smhiPixel(g.lat, g.lon);
+      const c = applyAffine(cellAt(cells, cx, cy).m, s.x, s.y);
+      if (Math.hypot(c.x - cx, c.y - cy) > 0.25) return false;
+    }
+  }
+  return true;
+}), true);
+
+/* ---------- the rain radar: which frames ---------- */
+
+const smhiFile = (valid, png = true) => ({ key: 'radar_x', valid,
+  formats: png ? [{ key: 'png', link: 'P' + valid }, { key: 'tif', link: 'T' }]
+               : [{ key: 'h5', link: 'H' }] });
+const fiveMin = (startUtcMs, count) => Array.from({ length: count }, (_, i) =>
+  new Date(startUtcMs + i * 300000).toISOString().slice(0, 16).replace('T', ' '));
+
+check('SMHI: the newest 13 PNG frames, oldest first, none from the future', (() => {
+  const now = Date.UTC(2026, 9, 3, 9, 32);
+  const day = { files: fiveMin(Date.UTC(2026, 9, 3, 7, 0), 40).map((v) => smhiFile(v))
+                     .concat([smhiFile('2026-10-03 09:35', false)]) };
+  const fr = smhiFrames([day], now);
+  return fr.length + ' ' + fr[0].url + ' ' + fr[12].url;
+})(), '13 P2026-10-03 08:30 P2026-10-03 09:30');
+
+check("SMHI just after midnight: yesterday's list fills the hour", (() => {
+  const now = Date.UTC(2026, 9, 3, 0, 12);
+  const urls = smhiDayUrls(now);
+  const y = { files: fiveMin(Date.UTC(2026, 9, 2, 22, 0), 24).map((v) => smhiFile(v)) };
+  const t = { files: fiveMin(Date.UTC(2026, 9, 3, 0, 0), 3).map((v) => smhiFile(v)) };
+  const fr = smhiFrames([y, t], now);
+  return urls.map((u) => u.slice(-10)).join(',') + ' ' + fr.length + ' ' + fr[0].url + ' ' + fr[12].url;
+})(), '2026/10/02,2026/10/03 13 P2026-10-02 23:10 P2026-10-03 00:10');
+
+check('SMHI at midday needs only today', smhiDayUrls(Date.UTC(2026, 9, 3, 12, 0)).length, 1);
+
+check('SMHI: a list that stopped long ago shows nothing', (() => {
+  const now = Date.UTC(2026, 9, 3, 9, 32);
+  const day = { files: fiveMin(Date.UTC(2026, 9, 3, 7, 0), 13).map((v) => smhiFile(v)) };
+  return smhiFrames([day, null], now).length;
+})(), 0);
+
+check('MET: still images only, newest 13, oldest first', (() => {
+  const now = Date.UTC(2026, 9, 3, 9, 32);
+  const list = fiveMin(Date.UTC(2026, 9, 3, 7, 0), 31).map((v) => ({
+    params: { area: 'western_norway', content: 'image', type: '5level_reflectivity',
+              time: v.replace(' ', 'T') + ':00Z' },
+    uri: 'U' + v.slice(11) }))
+    .concat([{ params: { content: 'animation', time: '2026-10-03T09:30:00Z' }, uri: 'ANIM' }]);
+  const fr = metFrames(list, now);
+  return fr.length + ' ' + fr[0].url + ' ' + fr[12].url + ' ' + metFrames(null, now).length;
+})(), '13 U08:30 U09:30 0');
+
+check('MET radar list url asks for one area only', metRadarUrl('troms'),
+  'https://api.met.no/weatherapi/radar/2.0/available.json?area=troms&type=5level_reflectivity&content=image');
+
+/* ---------- the rain radar: the next hour, read and said ---------- */
+
+const NOW_RAIN = Date.UTC(2026, 9, 3, 9, 32);
+const metNow = (coverage, rates, start) => ({ properties: { meta: { radar_coverage: coverage },
+  timeseries: rates.map((r, i) => ({ time: new Date(start + i * 300000).toISOString().replace('.000', ''),
+    data: { instant: { details: { precipitation_rate: r } } } })) } });
+
+check('MET nowcast: from the step in progress to 90 minutes on', (() => {
+  const nc = parseNowcast(metNow('ok', new Array(25).fill(0.2), Date.UTC(2026, 9, 3, 9, 20)), NOW_RAIN);
+  return nc.source + ' ' + nc.step + ' ' + nc.steps.length + ' '
+    + new Date(nc.steps[0].t).toISOString().slice(11, 16);
+})(), 'met 5 19 09:30');
+
+check('MET nowcast without radar here is no nowcast',
+  parseNowcast(metNow('temporarily unavailable', [0, 0, 0], NOW_RAIN), NOW_RAIN), null);
+
+check('MET nowcast that has gone stale is no nowcast',
+  parseNowcast(metNow('ok', [0, 0, 0], Date.UTC(2026, 9, 3, 7, 0)), NOW_RAIN), null);
+
+check('garbage in, no nowcast out',
+  [parseNowcast(null, NOW_RAIN), parseNowcast({}, NOW_RAIN),
+   parseMinutely(null, NOW_RAIN), parseMinutely({ minutely_15: {} }, NOW_RAIN)].join(','), ',,,');
+
+check('Open-Meteo quarters: mm per 15 min becomes mm/h, the next hour only', (() => {
+  const t0 = Date.UTC(2026, 9, 3, 9, 15);
+  const om = { minutely_15: {
+    time: [0, 1, 2, 3, 4, 5, 6].map((i) => new Date(t0 + i * 900000).toISOString().slice(0, 16)),
+    precipitation: [0, 0.25, 0.5, 0, 0, 0, 1] } };
+  const nc = parseMinutely(om, NOW_RAIN);
+  return nc.source + ' ' + nc.step + ' ' + nc.steps.map((s) => s.mmh).join('/');
+})(), 'om 15 1/2/0/0/0');
+
+check('rain levels: dry, light, moderate, heavy',
+  [0, 0.1, 0.99, 1, 4, 4.1].map(rainLevel).join(','), '0,1,1,2,2,3');
+
+check('rain bars on a fixed scale, so drizzle never looks like a downpour',
+  [0, 0.05, 0.1, 1, 10, 50].map(rainBar).join(','), '0,0,20,60,100,100');
+
+const ncOf = (rates, step = 5) => ({ source: 'met', step,
+  steps: rates.map((r, i) => ({ t: NOW_RAIN + i * step * 60000, mmh: r })) });
+const zeros = (n) => new Array(n).fill(0);
+
+check('said: dry', rainSummary(ncOf(zeros(19)), NOW_RAIN), 'Dry for the next 90 min.');
+check('said: a trace is still dry', rainSummary(ncOf(new Array(19).fill(0.05)), NOW_RAIN),
+  'Dry for the next 90 min.');
+check('said: a shower coming',
+  rainSummary(ncOf([0, 0, 0, 0, 0.5, 0.8, 0.6].concat(zeros(12))), NOW_RAIN),
+  'Rain in about 20 min, light, for about 15 min.');
+check('said: raining now, stopping',
+  rainSummary(ncOf([2, 2, 2].concat(zeros(16))), NOW_RAIN),
+  'Raining now, moderate. Stops in about 15 min.');
+check('said: raining all along', rainSummary(ncOf(new Array(19).fill(5)), NOW_RAIN),
+  'Raining for the next 90 min, heavy.');
+check('said: rain coming that stays',
+  rainSummary(ncOf(zeros(6).concat(new Array(13).fill(0.3))), NOW_RAIN),
+  'Rain in about 30 min, light, and it keeps on.');
+check('said: from quarter hours', rainSummary(ncOf([0, 1, 2, 0, 0], 15), NOW_RAIN),
+  'Rain in about 15 min, moderate, for about 30 min.');
+check('said in Swedish', (() => {
+  localStorage.setItem('touchgrass.lang', 'sv'); LANG_CACHE = null;
+  const out = rainSummary(ncOf([0, 0, 0, 0, 0.5, 0.8, 0.6].concat(zeros(12))), NOW_RAIN);
+  localStorage.setItem('touchgrass.lang', 'en'); LANG_CACHE = null;
+  return out;
+})(), 'Regn om ungefär 20 min, lätt, i ungefär 15 min.');
+
+check('the rain radar stays off until asked for', (() => {
+  const real = localStorage.getItem('touchgrass.settings');
+  localStorage.removeItem('touchgrass.settings');
+  const off = getSettings().radar;
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ radar: true }));
+  const on = getSettings().radar;
+  localStorage.setItem('touchgrass.settings', JSON.stringify({ radar: 'yes' }));
+  const junk = getSettings().radar;
+  if (real === null) localStorage.removeItem('touchgrass.settings');
+  else localStorage.setItem('touchgrass.settings', real);
+  return [off, on, junk, freshDefaults().radar].join(',');
+})(), 'false,true,false,false');
+
+/* ---------- the rain radar: our colours, a plainer map, zooming out ---------- */
+
+const px4 = (d, i) => Array.from(d.slice(i * 4, i * 4 + 4)).join('.');
+
+check("SMHI's colours become strengths: grey nothing, blue light, green moderate, yellow heavy, red very heavy", [
+  smhiLevel(181, 181, 181), smhiLevel(0, 170, 255), smhiLevel(0, 158, 0),
+  smhiLevel(255, 238, 15), smhiLevel(255, 140, 0), smhiLevel(255, 0, 0), smhiLevel(211, 0, 211)
+].join(','), '0,1,2,3,3,4,4');
+
+check('rain is repainted in our greens and yellows; grey echoes and the veil handled', (() => {
+  const d = new Uint8ClampedArray([
+    0, 170, 255, 255,    // light: blue
+    0, 158, 0, 255,      // moderate: green
+    255, 238, 15, 255,   // heavy: yellow
+    255, 0, 0, 255,      // very heavy: red
+    181, 181, 181, 255,  // grey echo
+    0, 0, 0, 15,         // outside the radars' reach
+    0, 0, 0, 0           // dry
+  ]);
+  recolourSmhi(d);
+  return [0, 1, 2, 3, 4, 5, 6].map((i) => px4(d, i)).join(' ');
+})(), '207.230.189.255 127.176.105.255 234.198.69.255 201.150.30.255 181.181.181.0 0.0.0.15 0.0.0.0');
+
+check('the drawn map settles into land and water, edges and all', (() => {
+  const d = new Uint8ClampedArray([
+    211, 220, 227, 255,  // water
+    218, 225, 229, 255,  // a soft edge, mostly water
+    240, 239, 232, 255,  // a soft edge, mostly land
+    246, 243, 234, 255   // land
+  ]);
+  plainMap(d);
+  return [0, 1, 2, 3].map((i) => px4(d, i)).join(' ');
+})(), '211.220.227.255 211.220.227.255 246.243.234.255 246.243.234.255');
+
+check('smoothing rounds off a jagged coast and drops one-pixel specks', (() => {
+  const w = 9, h = 9, m = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) m.push(x >= 4);   // land west of x 4
+  m[4 * w + 6] = false;   // a speck of land out at sea
+  m[4 * w + 1] = true;    // a pond one pixel big
+  smoothMask(m, w, h, 1);
+  return m.every((v, p) => v === (p % w >= 4));
+})(), true);
+
+check('lakes and islands smaller than the limit go; bigger ones stay', (() => {
+  const w = 12, h = 12, m = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) m.push(x >= 6);   // land west, sea east
+  const set = (x0, y0, n, v) => { for (let y = y0; y < y0 + n; y++) for (let x = x0; x < x0 + n; x++) m[y * w + x] = v; };
+  set(1, 1, 2, true);    // a 4 px lake
+  set(1, 7, 3, true);    // a 9 px lake
+  set(8, 1, 2, false);   // a 4 px island
+  set(8, 7, 3, false);   // a 9 px island
+  dropSmall(m, w, h, 5);
+  return [m[1 * w + 1], m[8 * w + 2], m[1 * w + 8], m[8 * w + 9], m[0], m[w - 1]].join(',');
+})(), 'false,true,true,false,false,true');
+
+check('leaning to water keeps a one-pixel sound open; an even vote closes it', (() => {
+  const w = 9, h = 9, lean = [], even = [];
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) lean.push(x === 4);
+  even.push(...lean);
+  smoothMask(lean, w, h, 1, 0.3); smoothMask(even, w, h, 1);
+  return [lean[4 * w + 4], even[4 * w + 4]].join(',');
+})(), 'true,false');
+
+check('every zoom draws from coarser tiles and drops the same small things',
+  RADAR_PLAIN.length === RADAR_ZOOMS.length
+  && RADAR_PLAIN.every((q) => q.dz >= 1 && q.smooth >= 1 && q.min > 0), true);
+
+check('three zooms, about 100, 200 and 400 km across', RADAR_ZOOMS.join(','), '9,8,7');
+
+check('zoomed out, the radar still lands within a third of a pixel', [9, 8, 7].every((z) => {
+  const v = mapView(59.3293, 18.0686, z, 640), cells = smhiCells(v, cellsFor(z));
+  for (let cy = 0; cy < 640; cy += 16) {
+    for (let cx = 0; cx < 640; cx += 16) {
+      const g = fromWorld(v.x0 + cx, v.y0 + cy, z), s = smhiPixel(g.lat, g.lon);
+      const c = applyAffine(cellAt(cells, cx, cy).m, s.x, s.y);
+      if (Math.hypot(c.x - cx, c.y - cy) > 0.33) return false;
+    }
+  }
+  return true;
+}), true);
+
+/* ---- the trip buttons buzz ---- */
+
+check('the first trip of the day gets the big buzz', buzzFor(0, 1), 'first');
+check('more trips get a lighter one', buzzFor(2, 3), 'again');
+check('taking a trip back buzzes down', buzzFor(3, 2), 'undo');
+check('emptying the day buzzes sadder still', buzzFor(1, 0), 'gone');
+check('nothing changed, nothing buzzes', buzzFor(5, 5), null);
+check('every buzz starts on and alternates buzz and pause',
+  Object.values(BUZZ).every((segs) => segs.length % 2 === 1 &&
+    segs.every(([ms, amp], i) => ms > 0 && ms <= 400 && (i % 2 ? amp === 0 : amp > 0 && amp <= 255))), true);
+check('a buzz becomes a browser vibrate pattern', vibratePattern([[30, 100], [50, 0], [90, 255]]).join(), '30,50,90');
 
 BK.forEach((k, i) => {
   if (BK_REAL[i] === null) localStorage.removeItem(k); else localStorage.setItem(k, BK_REAL[i]);

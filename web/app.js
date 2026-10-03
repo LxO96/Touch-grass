@@ -200,7 +200,9 @@ function pushWidget(v, place) {
       tempC: n.feels,
       windKmh: n.wind,
       pop: Math.round(n.pop),
-      sunset: STATE.data ? STATE.data.sunsetMin : null
+      sunset: STATE.data ? STATE.data.sunsetMin : null,
+      // The rest of the day, for the taller widget.
+      hours: widgetHours(STATE.data ? STATE.data.ahead : null, getSettings())
     }));
   } catch { /* the page works fine without a widget */ }
 }
@@ -282,8 +284,31 @@ function renderWhy(cols, s) {
 
   const head = document.createElement('h3');
   head.className = 'why-h';
-  head.textContent = `${col.label} — ${e.total}/100`;
+  // The chart's column says "20"; the heading has room for "20:00".
+  head.textContent = `${col.isNow ? col.label : (col.hour.label || col.label)} — ${e.total}/100`;
   box.append(head);
+
+  // The forecast first, in the Right now card's own rows.
+  const stats = document.createElement('div');
+  stats.className = 'stats hour-stats';
+  for (const r of hourStats(col.hour)) {
+    const st = document.createElement('div');
+    st.className = 'stat';
+    const k = document.createElement('span');
+    k.className = 'k';
+    k.textContent = r.k;
+    const v = document.createElement('span');
+    v.className = 'v';
+    v.textContent = r.v;
+    st.append(k, v);
+    stats.append(st);
+  }
+  box.append(stats);
+
+  const whyHead = document.createElement('h4');
+  whyHead.className = 'why-sub';
+  whyHead.textContent = L.whyScore(e.total);
+  box.append(whyHead);
 
   const rows = document.createElement('div');
   rows.className = 'why-rows';
@@ -373,8 +398,7 @@ function absorbWidgetVisits() {
   try {
     if (typeof TouchGrassAndroid === 'undefined' ||
         !TouchGrassAndroid.takePendingVisits) return;
-    let n = TouchGrassAndroid.takePendingVisits();
-    while (n-- > 0) addVisit();
+    absorbPending(TouchGrassAndroid.takePendingVisits());
   } catch { /* nothing pending, or no bridge */ }
 }
 
@@ -395,6 +419,7 @@ async function load(place) {
   STATE.place = place;
   STATE.loading = true;
   $('place').textContent = place.label;
+  loadRadarCard(place);   // its own fetches; never waits for the forecast
   try {
     STATE.data = await getWeather(place.lat, place.lon);
     STATE.stale = null;
@@ -472,13 +497,17 @@ function tryGeo(n, prevCode, force) {
    ========================================================== */
 
 $('btn-add').addEventListener('click', () => {
+  const before = visitsToday();
   addVisit();
+  buzz(buzzFor(before, visitsToday()));
   renderVerdict();
   renderToday(visitsToday());
 });
 
 $('btn-undo').addEventListener('click', () => {
+  const before = visitsToday();
   removeVisit();
+  buzz(buzzFor(before, visitsToday()));
   renderVerdict();
   renderToday(visitsToday());
 });
@@ -540,6 +569,8 @@ window.addEventListener('storage', (e) => {
     applyStatic();
     renderVerdict();
     renderToday(visitsToday());
+    // Turned on or off in Settings, or a new language: redo the card.
+    if (e.key === 'touchgrass.lang' || radarWanted() === $('radar-card').hidden) loadRadarCard(STATE.place);
   }
 });
 

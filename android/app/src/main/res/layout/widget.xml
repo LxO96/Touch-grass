@@ -75,4 +75,19 @@
             android:ellipsize="end"
             android:text="" />
     </LinearLayout>
+
+    <!-- One tap, one trip. Too small for words, so the + says it. -->
+    <TextView
+        android:id="@+id/w_log"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="8dp"
+        android:background="@drawable/widget_btn"
+        android:gravity="center"
+        android:includeFontPadding="false"
+        android:textSize="24sp"
+        android:textStyle="bold"
+        android:textColor="@color/ink"
+        android:contentDescription="@string/widget_log"
+        android:text="+" />
 </LinearLayout>

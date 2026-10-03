@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One coming hour: its time, its sky and its score. Added from code;
+     the shade (green, pale green, or a darker yellow) comes from
+     swapping the background drawable. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/hour_cell"
+    android:layout_width="0dp"
+    android:layout_weight="1"
+    android:layout_height="wrap_content"
+    android:layout_marginEnd="4dp"
+    android:orientation="vertical"
+    android:gravity="center_horizontal"
+    android:paddingTop="3dp"
+    android:paddingBottom="4dp">
+
+    <TextView
+        android:id="@+id/hour_time"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:textSize="11sp"
+        android:textColor="@color/ink"
+        android:includeFontPadding="false"
+        android:text="" />
+
+    <ImageView
+        android:id="@+id/hour_icon"
+        android:layout_width="16dp"
+        android:layout_height="16dp"
+        android:layout_marginTop="2dp"
+        android:importantForAccessibility="no" />
+
+    <TextView
+        android:id="@+id/hour_score"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="1dp"
+        android:textSize="14sp"
+        android:textStyle="bold"
+        android:textColor="@color/ink"
+        android:includeFontPadding="false"
+        android:text="" />
+</LinearLayout>

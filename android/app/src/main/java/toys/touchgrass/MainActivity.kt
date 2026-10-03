@@ -130,37 +130,37 @@ class MainActivity : AppCompatActivity() {
          * the first hold of a visit would otherwise be silent.
          */
         @JavascriptInterface
-        fun buzz() {
+        fun buzz() = Buzz.play(this@MainActivity, Buzz.HOLD)
+
+        /**
+         * The trip buttons' buzzes: comma-separated buzz and pause lengths
+         * in ms, with a strength 0–255 for each (0 = pause).
+         */
+        @JavascriptInterface
+        fun buzzPattern(ms: String, strengths: String) {
             try {
-                val v = if (android.os.Build.VERSION.SDK_INT >= 31) {
-                    getSystemService(android.os.VibratorManager::class.java)?.defaultVibrator
-                } else {
-                    @Suppress("DEPRECATION")
-                    getSystemService(android.os.Vibrator::class.java)
-                }
-                if (android.os.Build.VERSION.SDK_INT >= 26) {
-                    v?.vibrate(android.os.VibrationEffect.createOneShot(25, android.os.VibrationEffect.DEFAULT_AMPLITUDE))
-                } else {
-                    @Suppress("DEPRECATION")
-                    v?.vibrate(25)
-                }
+                val t = ms.split(',').map { it.trim().toLong() }
+                val a = strengths.split(',').map { it.trim().toInt().coerceIn(0, 255) }
+                if (t.isEmpty() || t.size != a.size || t.any { it <= 0 || it > 1000 }) return
+                Buzz.play(this@MainActivity, Buzz.Pattern(t.toLongArray(), a.toIntArray()))
             } catch (_: Exception) {
             }
         }
 
         /**
-         * Trips logged from the widget while the page wasn't running.
-         * Returns them once and forgets them, so the page can fold them
-         * into localStorage — which stays the only source of truth.
+         * Trips logged from the widget while the page wasn't running, as
+         * {"YYYY-MM-DD": n}. Returns them once and forgets them, so the page
+         * can fold them into localStorage — which stays the only source of
+         * truth.
          */
         @JavascriptInterface
-        fun takePendingVisits(): Int {
+        fun takePendingVisits(): String {
             return try {
-                val n = Prefs.pendingVisits(this@MainActivity)
-                if (n > 0) Prefs.clearPendingVisits(this@MainActivity)
-                n
+                val raw = Prefs.pendingByDay(this@MainActivity)
+                Prefs.clearPendingVisits(this@MainActivity)
+                raw
             } catch (_: Exception) {
-                0
+                "{}"
             }
         }
 

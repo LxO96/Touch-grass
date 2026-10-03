@@ -4,4 +4,7 @@
     <color name="sun">#EAC645</color>
     <color name="ink">#303E4E</color>
     <color name="grass">#7FB069</color>
+    <color name="grass_light">#CFE6BD</color>
+    <!-- ink at 15% over the widget's yellow: a shade darker, not a new colour -->
+    <color name="sun_shade">#26303E4E</color>
 </resources>

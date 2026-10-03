@@ -269,7 +269,10 @@ class CheckWorker(ctx: Context, params: WorkerParameters) : CoroutineWorker(ctx,
                 tempC = f.now.feels,
                 windKmh = f.now.wind,
                 pop = f.now.pop.toInt(),
-                sunsetMinutes = f.sunsetMinutes
+                sunsetMinutes = f.sunsetMinutes,
+                hours = WidgetHours.fromAhead(
+                    f.ahead, System.currentTimeMillis(), java.util.TimeZone.getDefault()
+                ) { Scoring.score(it, dials) }
             ).toJson()
         )
         Widget.refreshAll(c)
